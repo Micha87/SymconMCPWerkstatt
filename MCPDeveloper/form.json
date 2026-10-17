@@ -22,7 +22,59 @@
     {
       "type": "SelectCategory",
       "name": "RootID",
-      "caption": "Freigegebene Kategorie (0 sperrt den Zugang)"
+      "caption": "Arbeitsbereich (0 = kein Schreibbereich)"
+    },
+    {
+      "type": "List",
+      "name": "ReadOnlyCategories",
+      "caption": "Zusätzliche Kategorien – nur lesen",
+      "rowCount": 4,
+      "add": true,
+      "delete": true,
+      "columns": [
+        {
+          "caption": "Kategorie (einschließlich Unterobjekte)",
+          "name": "CategoryID",
+          "width": "auto",
+          "add": 0,
+          "edit": {
+            "type": "SelectCategory"
+          }
+        }
+      ]
+    },
+    {
+      "type": "List",
+      "name": "DeniedCategories",
+      "caption": "Gesperrte Kategorien – weder lesen noch schreiben",
+      "rowCount": 4,
+      "add": true,
+      "delete": true,
+      "columns": [
+        {
+          "caption": "Kategorie (einschließlich Unterobjekte)",
+          "name": "CategoryID",
+          "width": "auto",
+          "add": 0,
+          "edit": {
+            "type": "SelectCategory"
+          }
+        }
+      ]
+    },
+    {
+      "type": "Label",
+      "caption": "Sperren haben immer Vorrang. Nur-Lesen hat auch innerhalb des Arbeitsbereichs Vorrang. Die Modulinstanz und ihre Kinder sind gesperrt."
+    },
+    {
+      "type": "CheckBox",
+      "name": "AllowScriptSourceRead",
+      "caption": "Skriptquelltexte und Ereignis-Code in lesbaren Bereichen freigeben"
+    },
+    {
+      "type": "CheckBox",
+      "name": "AllowMediaContentRead",
+      "caption": "Medieninhalte in lesbaren Bereichen freigeben (z. B. IPSView-Dateien)"
     },
     {
       "type": "CheckBox",
@@ -33,6 +85,10 @@
       "type": "CheckBox",
       "name": "AllowExecute",
       "caption": "PHP ausführen, bestehende Skripte ändern und Ereignisse konfigurieren (volle Symcon-Rechte)"
+    },
+    {
+      "type": "Label",
+      "caption": "PHP-Ausführung ist keine Sandbox: gestartete Skripte können Kategorien-Sperren umgehen. Leserechte und Sperren gelten für direkte MCP-Werkzeuge. Kennwörter außerhalb gesperrter Bereiche werden nicht automatisch erkannt."
     },
     {
       "type": "ValidationTextBox",
@@ -49,7 +105,7 @@
     {
       "code": 200,
       "icon": "error",
-      "caption": "Kategorie wählen und Token mit mindestens 32 Zeichen setzen"
+      "caption": "Token oder Kategorien-Konfiguration ungültig / kein lesbarer Bereich"
     }
   ],
   "actions": [

@@ -3,7 +3,7 @@
 class IPSModuleStrict
 {
     public int $InstanceID = 23968;
-    public array $props = ['RootID'=>14846,'AllowWrite'=>true,'AllowExecute'=>false,'DebugEnabled'=>true,'Token'=>'existing-token-kept-until-apply'];
+    public array $props = ['RootID'=>14846,'AllowWrite'=>true,'AllowExecute'=>false,'DebugEnabled'=>true,'Token'=>'existing-token-kept-until-apply','ReadOnlyCategories'=>'[]','DeniedCategories'=>'[]','AllowScriptSourceRead'=>false,'AllowMediaContentRead'=>true];
     public array $fields = [];
     public array $debug = [];
     public function Create(): void {}
@@ -18,7 +18,8 @@ $GLOBALS['objects'] = [14846=>['ObjectType'=>0,'ObjectName'=>'MCP Arbeitsbereich
 function IPS_ObjectExists($id) { return isset($GLOBALS['objects'][$id]); }
 function IPS_GetObject($id) { return $GLOBALS['objects'][$id]; }
 function IPS_GetParent($id) { return $GLOBALS['objects'][$id]['ParentID'] ?? 0; }
-function IPS_GetChildrenIDs($id) { return []; }
+function IPS_GetChildrenIDs($id) { return array_keys(array_filter($GLOBALS['objects'], fn($o)=>($o['ParentID'] ?? 0)===$id)); }
+function IPS_GetName($id) { return $GLOBALS['objects'][$id]['ObjectName'] ?? 'Object '.$id; }
 function IPS_SemaphoreEnter($name,$timeout) { return true; }
 function IPS_SemaphoreLeave($name) {}
 function IPS_CreateScript($type) { $GLOBALS['objects'][49352]=['ObjectType'=>3];return 49352; }
@@ -45,7 +46,7 @@ expectTest($v['allow_write'] && !$v['allow_execute'],'Permissions');
 $r=toolTest('objects_list');$v=json_decode($r['result']['content'][0]['text'],true);
 expectTest($v===['root_id'=>14846,'parent_id'=>14846,'objects'=>[]],'Empty root discovery');
 $r=rpcTest('initialize',['protocolVersion'=>'2025-03-26']);
-expectTest(str_contains($r['result']['instructions'],'14846'),'Initialize root ID');
+expectTest(str_contains($r['result']['instructions'],'workspace_info'),'Initialize access discovery');
 $r=toolTest('script_put',['name'=>'Hello World','source'=>'<?php echo "SECRET-SOURCE";']);
 expectTest(!$r['result']['isError'] && $GLOBALS['objects'][49352]['ParentID']===14846,'Create with default root');
 $r=toolTest('script_put',['name'=>'Outside','source'=>'SECRET-SOURCE','parent_id'=>77777]);

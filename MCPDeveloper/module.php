@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../libs/TokenAuth.php';
 require_once __DIR__ . '/../libs/MediaReader.php';
+require_once __DIR__ . '/../libs/AccessPolicy.php';
 
 class SymconMCPWerkstatt extends IPSModuleStrict
 {
@@ -13,6 +14,10 @@ class SymconMCPWerkstatt extends IPSModuleStrict
         $this->RegisterPropertyString('Token', '');
         $this->RegisterPropertyBoolean('AllowTokenInPath', false);
         $this->RegisterPropertyInteger('RootID', 0);
+        $this->RegisterPropertyString('ReadOnlyCategories', '[]');
+        $this->RegisterPropertyString('DeniedCategories', '[]');
+        $this->RegisterPropertyBoolean('AllowScriptSourceRead', false);
+        $this->RegisterPropertyBoolean('AllowMediaContentRead', false);
         $this->RegisterPropertyBoolean('AllowWrite', false);
         $this->RegisterPropertyBoolean('AllowExecute', false);
         $this->RegisterPropertyString('Origins', '');
@@ -23,8 +28,8 @@ class SymconMCPWerkstatt extends IPSModuleStrict
     public function ApplyChanges(): void
     {
         parent::ApplyChanges();
-        $root = $this->ReadPropertyInteger('RootID');
-        $valid = $root > 0 && IPS_ObjectExists($root) && IPS_GetObject($root)['ObjectType'] === 0;
+        try { $valid = $this->policy()->readableRoots() !== []; }
+        catch (Throwable $e) { $valid = false; }
         $this->SetStatus(!$this->ReadPropertyBoolean('Enabled') ? 104 :
             ((strlen($this->ReadPropertyString('Token')) >= 32 && $valid) ? 102 : 200));
         $this->SetSummary('/hook/symcon-mcp-' . $this->InstanceID);
@@ -162,8 +167,8 @@ class SymconMCPWerkstatt extends IPSModuleStrict
                     $versions = ['2025-03-26','2025-06-18','2025-11-25'];
                     $version = in_array($p['protocolVersion'] ?? '', $versions, true) ? $p['protocolVersion'] : '2025-03-26';
                     $result = ['protocolVersion'=>$version,'capabilities'=>['tools'=>['listChanged'=>false]],
-                        'serverInfo'=>['name'=>'Symcon MCP Werkstatt','version'=>'0.1.8'],
-                        'instructions'=>'Workspace root ID: ' . $this->ReadPropertyInteger('RootID') . '. Use workspace_info for access details. Omit parent_id to create directly in the workspace. PHP execution has full Symcon privileges, not a sandbox.'];
+                        'serverInfo'=>['name'=>'Symcon MCP Werkstatt','version'=>'0.2.0'],
+                        'instructions'=>'Use workspace_info for readable roots and write permissions. Denied categories are invisible; read-only categories cannot be modified or executed, including overlaps. Source and media contents require separate grants. Omit parent_id to create in the workspace. Arbitrary PHP execution is NOT sandboxed and can bypass object restrictions.'];
                     break;
                 case 'ping': $result = new stdClass(); break;
                 case 'tools/list': $result = ['tools'=>$this->tools()]; break;
@@ -197,12 +202,14 @@ class SymconMCPWerkstatt extends IPSModuleStrict
     {
         $int = ['type'=>'integer','minimum'=>1]; $str = ['type'=>'string'];
         $defs = [
-            ['workspace_info','Return configured workspace root ID/name and permissions. No secrets.', [], [], false],
-            ['objects_list','Return root_id, parent_id and objects (direct children). Omit parent_id for workspace root.', ['parent_id'=>$int], [], false],
-            ['object_read','Read object metadata and variable value, script source, event or media metadata. Use media_read for media file content.', ['id'=>$int], ['id'], false],
-            ['media_read','Read a media file inside the allowed subtree, without modifying it. Returns UTF-8 text or Base64 binary chunks, full-file SHA256 and format hint. Default 8192 bytes, maximum 65536 per call, maximum file 32 MiB. Use next_offset and expected_sha256 for subsequent chunks.', ['id'=>$int,'offset'=>['type'=>'integer','minimum'=>0],'limit'=>['type'=>'integer','minimum'=>1,'maximum'=>65536],'expected_sha256'=>$str], ['id'], false]
+            ['workspace_info','Return workspace and readable category roots with permissions. Blocked categories are not disclosed.', [], [], false],
+            ['objects_list','Return visible direct children with read/write access labels. Blocked children are excluded. Omit parent_id for the workspace, or readable roots if no workspace is available.', ['parent_id'=>$int], [], false],
+            ['object_read','Read accessible metadata and variable values. Script/event source and media content require separate grants. Denied children and link targets are hidden; links never grant extra access.', ['id'=>$int], ['id'], false]
         ];
-        if ($this->ReadPropertyBoolean('AllowWrite')) {
+        if ($this->ReadPropertyBoolean('AllowMediaContentRead')) {
+            $defs[] = ['media_read','Read a media file from accessible categories; requires separate media-content permission. Returns UTF-8 or Base64 chunks and SHA256. Default 8192 bytes, max 65536 per reply, max file 32 MiB. Use next_offset and expected_sha256.', ['id'=>$int,'offset'=>['type'=>'integer','minimum'=>0],'limit'=>['type'=>'integer','minimum'=>1,'maximum'=>65536],'expected_sha256'=>$str], ['id'], false];
+        }
+        if ($this->ReadPropertyBoolean('AllowWrite') && $this->hasWritableWorkspace()) {
             $defs[] = ['category_create','Create category; omit parent_id to use workspace root.', ['parent_id'=>$int,'name'=>$str], ['name'], true];
             $defs[] = ['variable_create','Create variable; omit parent_id for workspace root. type: 0 boolean, 1 integer, 2 float, 3 string.', ['parent_id'=>$int,'name'=>$str,'type'=>['type'=>'integer','minimum'=>0,'maximum'=>3]], ['name','type'], true];
             $defs[] = ['variable_set','Set stored variable value, without device action.', ['id'=>$int,'value'=>['type'=>['boolean','integer','number','string']]], ['id','value'], true];
@@ -211,7 +218,7 @@ class SymconMCPWerkstatt extends IPSModuleStrict
                 $defs[] = ['event_interval','Create inactive cyclic event under a PHP script, or update one. seconds 1..86400. Enabling permits full-privilege execution.', ['script_id'=>$int,'event_id'=>$int,'seconds'=>['type'=>'integer','minimum'=>1,'maximum'=>86400],'active'=>['type'=>'boolean']], ['script_id','seconds','active'], true];
             }
         }
-        if ($this->ReadPropertyBoolean('AllowExecute')) {
+        if ($this->ReadPropertyBoolean('AllowExecute') && $this->hasWritableWorkspace()) {
             $defs[] = ['script_run','Execute PHP script asynchronously with full Symcon privileges; returns acceptance, not script result.', ['id'=>$int], ['id'], true];
         }
         $out = [];
@@ -237,43 +244,108 @@ class SymconMCPWerkstatt extends IPSModuleStrict
         }
     }
 
-    private function check(int $id, ?int $type = null): array
+    private function policy(): SMCPAccessPolicy
     {
-        if (!IPS_ObjectExists($id) || $id === $this->InstanceID) { throw new RuntimeException('Object unavailable'); }
-        $o = IPS_GetObject($id); $cursor = $id; $root = $this->ReadPropertyInteger('RootID');
-        while ($cursor > 0 && $cursor !== $root) { $cursor = IPS_GetParent($cursor); }
-        if ($root <= 0 || $cursor !== $root) { throw new RuntimeException('Outside allowed subtree'); }
+        return new SMCPAccessPolicy($this->ReadPropertyInteger('RootID'),
+            $this->ReadPropertyString('ReadOnlyCategories'),
+            $this->ReadPropertyString('DeniedCategories'), $this->InstanceID);
+    }
+
+    private function hasWritableWorkspace(): bool
+    {
+        $policy = $this->policy();
+        return $policy->workspace() > 0 && $policy->canWrite($policy->workspace());
+    }
+
+    private function check(int $id, ?int $type = null, bool $write = false): array
+    {
+        $policy = $this->policy();
+        if (!$policy->canRead($id)) { throw new RuntimeException('Object unavailable or not permitted'); }
+        if ($write && !$policy->canWrite($id)) { throw new RuntimeException('Read-only category: write and execution denied'); }
+        $o = IPS_GetObject($id);
         if ($type !== null && $o['ObjectType'] !== $type) { throw new RuntimeException('Wrong object type'); }
         return $o;
+    }
+
+    private function visibleChildren(int $id, SMCPAccessPolicy $policy): array
+    {
+        return array_values(array_filter(IPS_GetChildrenIDs($id), fn(int $child): bool => $policy->canRead($child)));
+    }
+
+    private function safeObject(int $id): array
+    {
+        $policy = $this->policy(); $o = $this->check($id);
+        $children = $this->visibleChildren($id, $policy);
+        $o['ChildrenIDs'] = $children; $o['HasChildren'] = $children !== [];
+        if (isset($o['ParentID']) && !$policy->canRead($o['ParentID'])) { $o['ParentID'] = null; }
+        return $o;
+    }
+
+    private function visibleChildrenForList(int $id, SMCPAccessPolicy $policy): array
+    {
+        $this->check($id);
+        return $this->visibleChildren($id, $policy);
+    }
+
+    private function objectSummary(int $id, SMCPAccessPolicy $policy): array
+    {
+        $o = $this->check($id);
+        return ['id'=>$id,'name'=>$o['ObjectName'],'ident'=>$o['ObjectIdent'],'type'=>$o['ObjectType'],
+            'has_children'=>$this->visibleChildren($id, $policy) !== [], 'access'=>$policy->level($id)];
     }
 
     private function call(string $name, array $a)
     {
         if ($name === 'workspace_info') {
-            $root = $this->ReadPropertyInteger('RootID'); $o = $this->check($root, 0);
-            return ['root_id'=>$root,'root_name'=>$o['ObjectName'],
-                'allow_write'=>$this->ReadPropertyBoolean('AllowWrite'),
-                'allow_execute'=>$this->ReadPropertyBoolean('AllowExecute')];
+            $policy = $this->policy(); $root = $policy->workspace();
+            $rootReadable = $policy->canRead($root); $writable = $rootReadable && $policy->canWrite($root);
+            $roots = [];
+            foreach ($policy->readableRoots() as $id) { $roots[] = $this->objectSummary($id, $policy); }
+            return ['root_id'=>$rootReadable ? $root : null,
+                'root_name'=>$rootReadable ? IPS_GetName($root) : null,'readable_roots'=>$roots,
+                'allow_write'=>$writable && $this->ReadPropertyBoolean('AllowWrite'),
+                'allow_execute'=>$writable && $this->ReadPropertyBoolean('AllowExecute'),
+                'allow_script_source_read'=>$this->ReadPropertyBoolean('AllowScriptSourceRead'),
+                'allow_media_content_read'=>$this->ReadPropertyBoolean('AllowMediaContentRead'),
+                'php_execution_sandboxed'=>false];
         }
         if ($name === 'objects_list') {
-            $id = $a['parent_id'] ?? $this->ReadPropertyInteger('RootID'); $this->check($id);
+            $policy = $this->policy(); $root = $policy->workspace();
+            $id = $a['parent_id'] ?? ($policy->canRead($root) ? $root : null);
+            $ids = $id === null ? $policy->readableRoots() : $this->visibleChildrenForList($id, $policy);
             $out = [];
-            foreach (IPS_GetChildrenIDs($id) as $child) {
-                if ($child === $this->InstanceID) { continue; }
-                $o = IPS_GetObject($child); $out[] = ['id'=>$child,'name'=>$o['ObjectName'],'ident'=>$o['ObjectIdent'],'type'=>$o['ObjectType'],'has_children'=>$o['HasChildren']];
-            }
-            return ['root_id'=>$this->ReadPropertyInteger('RootID'),'parent_id'=>$id,'objects'=>$out];
+            foreach ($ids as $child) { $out[] = $this->objectSummary($child, $policy); }
+            return ['root_id'=>$policy->canRead($root) ? $root : null,'parent_id'=>$id,'objects'=>$out];
         }
         if ($name === 'media_read') {
+            if (!$this->ReadPropertyBoolean('AllowMediaContentRead')) { throw new RuntimeException('Media content reading disabled'); }
             $this->check($a['id'],5);
             return SMCPMediaReader::read($a['id'],$a['offset'] ?? 0,$a['limit'] ?? 8192,$a['expected_sha256'] ?? '');
         }
         if ($name === 'object_read') {
-            $id = $a['id']; $o = $this->check($id); $out = ['id'=>$id,'object'=>$o];
+            $id = $a['id']; $o = $this->safeObject($id);
+            $out = ['id'=>$id,'object'=>$o,'access'=>$this->policy()->level($id)];
             if ($o['ObjectType'] === 2) { $out['variable'] = IPS_GetVariable($id); $out['value'] = GetValue($id); }
-            if ($o['ObjectType'] === 3) { $out['source'] = IPS_GetScriptContent($id); $out['sha256'] = hash('sha256',$out['source']); }
-            if ($o['ObjectType'] === 4) { $out['event'] = IPS_GetEvent($id); }
-            if ($o['ObjectType'] === 5) { $out['media'] = IPS_GetMedia($id); }
+            if ($o['ObjectType'] === 3) {
+                $out['source_readable'] = $this->ReadPropertyBoolean('AllowScriptSourceRead');
+                if ($out['source_readable']) { $out['source'] = IPS_GetScriptContent($id); $out['sha256'] = hash('sha256',$out['source']); }
+            }
+            if ($o['ObjectType'] === 4) {
+                $event = IPS_GetEvent($id); $source = $this->ReadPropertyBoolean('AllowScriptSourceRead');
+                $out['event'] = $source ? $event : array_intersect_key($event, array_flip(['EventID','EventType','EventActive','EventLastRun','EventNextRun','LastRun','NextRun']));
+                $out['source_readable'] = $source;
+            }
+            if ($o['ObjectType'] === 5) {
+                // Stream URLs and filenames can contain credentials, so metadata does not disclose paths.
+                $out['media'] = array_intersect_key(IPS_GetMedia($id),array_flip(['MediaID','MediaType','MediaSize','MediaUpdated','MediaCRC','MediaIsAvailable','MediaIsCached']));
+                $out['content_readable'] = $this->ReadPropertyBoolean('AllowMediaContentRead');
+            }
+            if ($o['ObjectType'] === 6) {
+                $target = (int)IPS_GetLink($id)['TargetID'];
+                $readable = $this->policy()->canRead($target);
+                $out['link'] = ['target_readable'=>$readable];
+                if ($readable) { $out['link']['target_id'] = $target; }
+            }
             return $out;
         }
         $a['parent_id'] = $a['parent_id'] ?? $this->ReadPropertyInteger('RootID');
@@ -285,34 +357,34 @@ class SymconMCPWerkstatt extends IPSModuleStrict
             $id = 0;
             switch ($name) {
                 case 'category_create': case 'variable_create':
-                    $this->check($a['parent_id'],0);
+                    $this->check($a['parent_id'],0,true);
                     $id = $name === 'category_create' ? IPS_CreateCategory() : IPS_CreateVariable($a['type']);
                     IPS_SetParent($id,$a['parent_id']); IPS_SetName($id,$a['name']); break;
                 case 'variable_set':
-                    $id=$a['id']; $this->check($id,2); $type=IPS_GetVariable($id)['VariableType']; $v=$a['value'];
+                    $id=$a['id']; $this->check($id,2,true); $type=IPS_GetVariable($id)['VariableType']; $v=$a['value'];
                     if (!(($type===0 && is_bool($v)) || ($type===1 && is_int($v)) || ($type===2 && (is_int($v)||is_float($v))) || ($type===3 && is_string($v)))) { throw new RuntimeException('Value type mismatch'); }
                     SetValue($id,$v); break;
                 case 'script_put':
                     if (isset($a['id'])) {
-                        $id=$a['id']; $this->check($id,3);
+                        $id=$a['id']; $this->check($id,3,true);
                         if (IPS_GetScript($id)['ScriptType'] !== 0) { throw new RuntimeException('Only PHP scripts'); }
                         if (!hash_equals(hash('sha256',IPS_GetScriptContent($id)),$a['expected_sha256'] ?? '')) { throw new RuntimeException('Source changed; read again'); }
                         // Updating an active script can execute new code through existing events.
                         if (!$this->ReadPropertyBoolean('AllowExecute')) { throw new RuntimeException('Updating existing PHP requires execution permission'); }
                     } else {
                         if (!isset($a['name'])) { throw new RuntimeException('Create requires name'); }
-                        $this->check($a['parent_id'],0); $id=IPS_CreateScript(0); IPS_SetParent($id,$a['parent_id']); IPS_SetName($id,$a['name']);
+                        $this->check($a['parent_id'],0,true); $id=IPS_CreateScript(0); IPS_SetParent($id,$a['parent_id']); IPS_SetName($id,$a['name']);
                     }
                     IPS_SetScriptContent($id,$a['source']); break;
                 case 'script_run':
-                    $id=$a['id']; $this->check($id,3);
+                    $id=$a['id']; $this->check($id,3,true);
                     if (IPS_GetScript($id)['ScriptType'] !== 0) { throw new RuntimeException('Only PHP scripts'); }
                     if (!IPS_RunScript($id)) { throw new RuntimeException('Script could not be started'); } break;
                 case 'event_interval':
-                    $this->check($a['script_id'],3);
+                    $this->check($a['script_id'],3,true);
                     if (IPS_GetScript($a['script_id'])['ScriptType'] !== 0) { throw new RuntimeException('Only PHP scripts'); }
                     if (isset($a['event_id'])) {
-                        $id=$a['event_id']; $this->check($id,4);
+                        $id=$a['event_id']; $this->check($id,4,true);
                         if (IPS_GetParent($id) !== $a['script_id'] || IPS_GetEvent($id)['EventType'] !== 1) { throw new RuntimeException('Wrong event'); }
                     } else { $id=IPS_CreateEvent(1); IPS_SetParent($id,$a['script_id']); IPS_SetName($id,'MCP Interval'); }
                     IPS_SetEventActive($id,false);
