@@ -1,0 +1,100 @@
+{
+  "elements": [
+    {
+      "type": "Label",
+      "caption": "Symcon MCP Werkstatt – Symcon ab 8.1. Endpunkt: /hook/symcon-mcp-<Instanz-ID>"
+    },
+    {
+      "type": "CheckBox",
+      "name": "Enabled",
+      "caption": "Zugang aktivieren"
+    },
+    {
+      "type": "PasswordTextBox",
+      "name": "Token",
+      "caption": "Bearer-Token (mindestens 32 Zeichen)"
+    },
+    {
+      "type": "CheckBox",
+      "name": "AllowTokenInPath",
+      "caption": "Token auch in der Adresse (für ChatGPT ohne separate Anmeldung)"
+    },
+    {
+      "type": "SelectCategory",
+      "name": "RootID",
+      "caption": "Freigegebene Kategorie (0 sperrt den Zugang)"
+    },
+    {
+      "type": "CheckBox",
+      "name": "AllowWrite",
+      "caption": "Objekte anlegen und Variablen schreiben"
+    },
+    {
+      "type": "CheckBox",
+      "name": "AllowExecute",
+      "caption": "PHP ausführen, bestehende Skripte ändern und Ereignisse konfigurieren (volle Symcon-Rechte)"
+    },
+    {
+      "type": "ValidationTextBox",
+      "name": "Origins",
+      "caption": "Erlaubte Browser-Origins, kommasepariert (leer: keine Browser)"
+    },
+    {
+      "type": "CheckBox",
+      "name": "DebugEnabled",
+      "caption": "Debug-Ausgaben aktivieren (ohne Token, Quelltexte und Variablenwerte)"
+    }
+  ],
+  "status": [
+    {
+      "code": 200,
+      "icon": "error",
+      "caption": "Kategorie wählen und Token mit mindestens 32 Zeichen setzen"
+    }
+  ],
+  "actions": [
+    {
+      "type": "Label",
+      "caption": "Neuer Token wird erst mit Änderungen übernehmen aktiv. Bestehende ChatGPT-Verbindungen benötigen danach den neuen Token."
+    },
+    {
+      "type": "Button",
+      "caption": "Neuen Token erzeugen",
+      "onClick": "SMCP_UIGenerateToken($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "Gespeicherten Token anzeigen / kopieren",
+      "onClick": "SMCP_UIShowToken($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "ChatGPT-Adresse anzeigen / kopieren",
+      "onClick": "SMCP_UIShowChatGPTAddress($id);"
+    },
+    {
+      "type": "PopupAlert",
+      "name": "CopyPopup",
+      "visible": false,
+      "popup": {
+        "caption": "Token kopieren",
+        "width": "70%",
+        "closeCaption": "Schließen",
+        "items": [
+          {
+            "type": "Label",
+            "name": "CopyCaption",
+            "caption": ""
+          },
+          {
+            "type": "ValidationTextBox",
+            "name": "CopyValue",
+            "caption": "Token (Strg+A, Strg+C)",
+            "width": "100%",
+            "value": ""
+          }
+        ]
+      }
+    }
+  ]
+}

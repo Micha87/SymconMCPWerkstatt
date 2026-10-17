@@ -1,0 +1,14 @@
+{
+  "id": "{12E1C396-4036-4CDF-9FB9-A798F5044BDB}",
+  "name": "Symcon MCP Werkstatt",
+  "type": 3,
+  "vendor": "Symcon Tools",
+  "aliases": [
+    "MCP Werkstatt"
+  ],
+  "parentRequirements": [],
+  "childRequirements": [],
+  "implemented": [],
+  "prefix": "SMCP",
+  "url": "https://github.com/Micha87/SymconMCPWerkstatt"
+}

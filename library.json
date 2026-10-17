@@ -1,0 +1,12 @@
+{
+  "id": "{5AB2744F-108A-4E5D-A2B7-44A52B07209C}",
+  "author": "Micha",
+  "name": "Symcon MCP Werkstatt",
+  "url": "https://github.com/Micha87/SymconMCPWerkstatt",
+  "compatibility": {
+    "version": "8.1"
+  },
+  "version": "0.1.8",
+  "build": 9,
+  "date": 1792249200
+}
