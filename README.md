@@ -65,6 +65,7 @@ php tests/workspace.php
 php tests/access.php
 php tests/instances.php
 php tests/instance_checkbox.php
+php tests/instance_selection.php
 ```
 
 `python3 test_connection.py` führt einen lesenden Verbindungstest durch.
@@ -113,8 +114,22 @@ Ab 0.3.1 genügt die Checkbox **„Konfiguration lesen“** in der jeweiligen Ze
 - Mit Haken: zusätzlich die Konfiguration dieser Instanz, ohne Schreibfunktionen.
 - Leere Instanzauswahl: keine zusätzlichen Freigaben, insbesondere kein Zugriff auf alle Instanzen.
 
-Für Location also Instanz auswählen und den Haken setzen. Der JSON-Wert `Location` wird
-als Objekt mit `latitude` und `longitude` zurückgegeben; es müssen keine Namen eingegeben werden.
+Ab 0.3.2 kann zusätzlich zwischen **allen Eigenschaften** und **Einzelauswahl** gewählt werden:
+
+1. Instanz auswählen und „Konfiguration lesen“ einschalten.
+2. „Alle Eigenschaften erlauben“ eingeschaltet lassen, um die gesamte gefilterte Konfiguration zu lesen.
+3. Alternativ diesen Haken ausschalten und in der eingeblendeten Liste nur gewünschte Eigenschaften anhaken.
+4. Dialog mit OK schließen und Änderungen übernehmen.
+
+Die Liste ermittelt verfügbare Felder automatisch; im Dialog werden nur Namen angezeigt, keine Werte.
+Bei Location beispielsweise `Location.latitude` und `Location.longitude` anhaken. Die Einzelauswahl
+liefert diese Pfade als Schlüssel, „Alle“ liefert `Location` als Objekt. Eine leere Einzelauswahl
+liest keinerlei Konfiguration. Geheimnisse, die der Filter zurückhält, sind nicht auswählbar.
+Der Dialog enthält kein Textfeld für Eigenschaftsnamen mehr. Neue Instanzen bleiben ohne
+Konfigurationsfreigabe; bei einem Wechsel der Instanz im Dialog wird diese Freigabe zurückgesetzt.
+
+Update von 0.3.1: Ein bisher ausdrücklich erlaubter Konfigurationszugriff bleibt im Modus „Alle“.
+Nicht erlaubte Zugriffe bleiben aus. Die Feldauswahl wird erst beim Übernehmen wirksam.
 
 Bekannte Zugangsfelder (z. B. Password, Token, APIKey, UserName, Authorization) werden rekursiv
 durch `[REDACTED]` ersetzt, auch innerhalb JSON-codierter Strings und Listen. URLs mit

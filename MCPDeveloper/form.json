@@ -66,6 +66,7 @@
       "type": "List",
       "name": "ReadOnlyInstances",
       "caption": "Zusätzliche Instanzen – nur lesen (z. B. Kerninstanz Location)",
+      "form": "return json_decode(SMCP_UIInstanceAccessForm($id, $ReadOnlyInstances['InstanceID'] ?? 0, $ReadOnlyInstances['ReadConfiguration'] ?? false, $ReadOnlyInstances['AllProperties'] ?? true, json_encode($ReadOnlyInstances['PropertySelection'] ?? [])), true);",
       "rowCount": 4,
       "add": true,
       "delete": true,
@@ -73,7 +74,7 @@
         {
           "caption": "Instanz mit Unterobjekten",
           "name": "InstanceID",
-          "width": "300px",
+          "width": "auto",
           "add": 0,
           "edit": { "type": "SelectInstance" }
         },
@@ -85,18 +86,33 @@
           "edit": { "type": "CheckBox", "caption": "Konfiguration lesen" }
         },
         {
+          "caption": "Alle Eigenschaften",
+          "name": "AllProperties",
+          "width": "180px",
+          "add": true,
+          "edit": { "type": "CheckBox" }
+        },
+        {
+          "caption": "Einzelauswahl",
+          "name": "PropertySelection",
+          "visible": false,
+          "width": "200px",
+          "add": [],
+          "edit": { "type": "List", "columns": [] }
+        },
+        {
           "caption": "Bisherige Eigenschaftsauswahl (0.3.0)",
           "name": "Properties",
           "visible": false,
-          "width": "auto",
+          "width": "200px",
           "add": "",
-          "edit": { "type": "ValidationTextBox" }
+          "save": true
         }
       ]
     },
     {
       "type": "Label",
-      "caption": "Instanz auswählen und bei Bedarf Konfiguration lesen anhaken. Ohne Haken nur Status, Modul und lesbare Unterobjekte. Bekannte Zugangsfelder werden gefiltert, auch in verschachtelten JSON-Werten. Ungewöhnlich benannte Geheimnisse können unerkannt bleiben. Sperren haben Vorrang."
+      "caption": "Konfiguration lesen aktivieren. Danach entweder alle Eigenschaften erlauben oder im Bearbeitungsdialog einzelne Felder anhaken. Kein Haken bei Konfiguration lesen bedeutet nur Metadaten. Bekannte Zugangsfelder werden gefiltert; ungewöhnlich benannte Geheimnisse können unerkannt bleiben. Sperren haben Vorrang."
     },
     {
       "type": "Label",

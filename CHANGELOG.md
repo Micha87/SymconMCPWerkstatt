@@ -1,5 +1,13 @@
 # Änderungen
 
+## 0.3.2
+
+- Pro Instanz „Alle Eigenschaften erlauben“ oder einzelne Eigenschaften per Checkbox auswählen.
+- Bearbeitungsdialog ermittelt Eigenschaftsnamen automatisch, einschließlich verschachtelter JSON-Felder.
+- Altes Textfeld erscheint nicht mehr im Dialog; vorhandene alte Freigaben bleiben kompatibel.
+- Leere Einzelauswahl gewährt keinerlei Konfigurationszugriff, gesperrte Werte sind nicht auswählbar.
+- Instanzwechsel im Dialog setzt die Konfigurationsfreigabe zurück; Speichern erst beim Übernehmen.
+
 ## 0.3.1
 
 - Checkbox „Konfiguration lesen“ pro ausgewählter Instanz statt manueller Eigenschaftsliste.

@@ -102,6 +102,60 @@ class SymconMCPWerkstatt extends IPSModuleStrict
         }
     }
 
+    // Editor-only helpers: expose property names, never configuration values.
+    public function UIInstanceAccessForm(int $instance, bool $read, bool $all, string $selection): string
+    {
+        $rows = $this->instancePropertyRows($instance, $selection);
+        return json_encode([
+            ['type'=>'SelectInstance','name'=>'InstanceID','caption'=>'Instanz mit Unterobjekten',
+                'onChange'=>'SMCP_UIInstanceChanged($id, $InstanceID);'],
+            ['type'=>'CheckBox','name'=>'ReadConfiguration','caption'=>'Konfiguration lesen',
+                'onChange'=>'SMCP_UIInstanceModeChanged($id, $ReadConfiguration, $AllProperties);'],
+            ['type'=>'CheckBox','name'=>'AllProperties','caption'=>'Alle Eigenschaften erlauben (Zugangsdaten gefiltert)',
+                'enabled'=>$read,'onChange'=>'SMCP_UIInstanceModeChanged($id, $ReadConfiguration, $AllProperties);'],
+            ['type'=>'Label','caption'=>'Alle Eigenschaften ausschalten, um einzelne Felder unten anzuhaken. Danach OK und Änderungen übernehmen.'],
+            ['type'=>'List','name'=>'PropertySelection','caption'=>'Einzelne Eigenschaften freigeben',
+                'visible'=>$read && !$all,'rowCount'=>8,'add'=>false,'delete'=>false,
+                'loadValuesFromConfiguration'=>false,
+                'columns'=>[
+                    ['name'=>'Allowed','caption'=>'Lesen erlauben','width'=>'140px','add'=>false,'edit'=>['type'=>'CheckBox']],
+                    ['name'=>'Property','caption'=>'Eigenschaft','width'=>'auto','save'=>true]
+                ],'values'=>$rows]
+        ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+    }
+
+    public function UIInstanceChanged(int $instance): void
+    {
+        $this->UpdateFormField('PropertySelection','values',json_encode($this->instancePropertyRows($instance, '[]')));
+        // Selecting a different instance must not transfer an old configuration grant.
+        $this->UpdateFormField('ReadConfiguration','value',false);
+        $this->UpdateFormField('AllProperties','value',true);
+        $this->UIInstanceModeChanged(false, true);
+    }
+
+    public function UIInstanceModeChanged(bool $read, bool $all): void
+    {
+        $this->UpdateFormField('AllProperties','enabled',$read);
+        $this->UpdateFormField('PropertySelection','visible',$read && !$all);
+    }
+
+    private function instancePropertyRows(int $instance, string $selection): array
+    {
+        if ($instance <= 0) { return []; }
+        try {
+            // The locally selected draft need not be saved yet. Denies still apply.
+            $policy = new SMCPAccessPolicy($this->ReadPropertyInteger('RootID'),
+                $this->ReadPropertyString('ReadOnlyCategories'), $this->ReadPropertyString('DeniedCategories'),
+                $this->InstanceID, json_encode([['InstanceID'=>$instance]]));
+            if (!$policy->canRead($instance)) { return []; }
+            $previous = json_decode($selection, true, 32, JSON_THROW_ON_ERROR);
+            if (!is_array($previous)) { return []; }
+            return SMCPInstanceReader::selectionRows($instance, $previous);
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
     protected function ProcessHookData(): void
     {
         header('Cache-Control: no-store');
@@ -169,7 +223,7 @@ class SymconMCPWerkstatt extends IPSModuleStrict
                     $versions = ['2025-03-26','2025-06-18','2025-11-25'];
                     $version = in_array($p['protocolVersion'] ?? '', $versions, true) ? $p['protocolVersion'] : '2025-03-26';
                     $result = ['protocolVersion'=>$version,'capabilities'=>['tools'=>['listChanged'=>false]],
-                        'serverInfo'=>['name'=>'Symcon MCP Werkstatt','version'=>'0.3.1'],
+                        'serverInfo'=>['name'=>'Symcon MCP Werkstatt','version'=>'0.3.2'],
                         'instructions'=>'Use workspace_info for readable roots and write permissions; use instances_list and instance_read for permitted instances including selected core instances. Instance configuration requires an explicit per-instance checkbox; known credential fields are redacted. Denied categories are invisible; read-only categories and selected instances cannot be modified or executed, including overlaps. Source and media contents require separate grants. Omit parent_id to create in the workspace. Arbitrary PHP execution is NOT sandboxed and can bypass object restrictions.'];
                     break;
                 case 'ping': $result = new stdClass(); break;
@@ -354,7 +408,7 @@ class SymconMCPWerkstatt extends IPSModuleStrict
                 $out['instance'] = SMCPInstanceReader::metadata($id, fn(int $target): bool => $policy->canRead($target));
                 $grants = SMCPInstanceReader::grants($this->ReadPropertyString('ReadOnlyInstances'));
                 $grant = $grants[$id] ?? false;
-                $out['configuration_readable'] = $grant === true || (is_array($grant) && $grant !== []);
+                $out['configuration_readable'] = SMCPInstanceReader::readable($grant);
                 $out['configuration'] = (object)SMCPInstanceReader::configuration($id, $grant);
             }
             if ($o['ObjectType'] === 2) { $out['variable'] = IPS_GetVariable($id); $out['value'] = GetValue($id); }

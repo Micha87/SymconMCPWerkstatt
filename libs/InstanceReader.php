@@ -14,7 +14,8 @@ final class SMCPInstanceReader
             $id = is_array($row) ? ($row['InstanceID'] ?? null) : null;
             if ((!is_int($id) && !is_string($id)) || filter_var($id, FILTER_VALIDATE_INT, ['options'=>['min_range'=>1]]) === false
                 || !is_string($row['Properties'] ?? '')
-                || (array_key_exists('ReadConfiguration', $row) && !is_bool($row['ReadConfiguration']))) {
+                || (array_key_exists('ReadConfiguration', $row) && !is_bool($row['ReadConfiguration']))
+                || (array_key_exists('AllProperties', $row) && !is_bool($row['AllProperties']))) {
                 throw new RuntimeException('Invalid instance ID or configuration checkbox');
             }
             $id = (int)$id;
@@ -29,6 +30,23 @@ final class SMCPInstanceReader
             // Legacy 0.3.0 rows keep their exact allowlist until the new checkbox is saved.
             // An explicit false always overrides old Properties, including a nonempty list.
             $grants[$id] = array_key_exists('ReadConfiguration', $row) ? $row['ReadConfiguration'] : $properties;
+            if (array_key_exists('PropertySelection', $row)) {
+                $selection = $row['PropertySelection'];
+                if (!is_array($selection) || !array_is_list($selection)) { throw new RuntimeException('Invalid property selection'); }
+                foreach ($selection as $entry) {
+                    if (!is_array($entry) || !is_string($entry['Property'] ?? null) || !is_bool($entry['Allowed'] ?? null)
+                        || preg_match('/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*$/D', $entry['Property']) !== 1) {
+                        throw new RuntimeException('Invalid property selection row');
+                    }
+                }
+            }
+            if (($row['ReadConfiguration'] ?? false) && !($row['AllProperties'] ?? true)) {
+                $selected = [];
+                foreach ($row['PropertySelection'] ?? [] as $entry) {
+                    if ($entry['Allowed']) { $selected[] = $entry['Property']; }
+                }
+                $grants[$id] = ['selected'=>array_values(array_unique($selected))];
+            }
         }
         return $grants;
     }
@@ -71,6 +89,15 @@ final class SMCPInstanceReader
 
     public static function configuration(int $id, $grant): array
     {
+        if (is_array($grant) && array_key_exists('selected', $grant)) {
+            if ($grant['selected'] === []) { return []; }
+            $flat = self::flatten(self::configuration($id, true)); $selected = [];
+            foreach ($grant['selected'] as $path) {
+                if (!array_key_exists($path, $flat)) { throw new RuntimeException('Selected instance property unavailable'); }
+                $selected[$path] = $flat[$path];
+            }
+            return $selected;
+        }
         if (is_array($grant)) { return self::properties($id, $grant); }
         if ($grant !== true) { return []; }
         try {
@@ -83,6 +110,41 @@ final class SMCPInstanceReader
             // Exceptions from modules must not disclose credentials or raw configuration.
             throw new RuntimeException('Instance configuration unavailable');
         }
+    }
+
+    public static function readable($grant): bool
+    {
+        if ($grant === true) { return true; }
+        if (!is_array($grant)) { return false; }
+        return array_key_exists('selected', $grant) ? $grant['selected'] !== [] : $grant !== [];
+    }
+
+    public static function selectionRows(int $id, array $previous = []): array
+    {
+        $checks = [];
+        foreach ($previous as $row) {
+            if (is_array($row) && is_string($row['Property'] ?? null)) { $checks[$row['Property']] = ($row['Allowed'] ?? false) === true; }
+        }
+        $flat = self::flatten(self::configuration($id, true)); ksort($flat, SORT_NATURAL);
+        $rows = [];
+        foreach (array_keys($flat) as $name) { $rows[] = ['Property'=>$name,'Allowed'=>$checks[$name] ?? false]; }
+        return $rows;
+    }
+
+    private static function flatten(array $value, string $prefix = ''): array
+    {
+        $out = [];
+        foreach ($value as $key=>$item) {
+            if (self::sensitive((string)$key) || preg_match('/^[A-Za-z0-9_]+$/D', (string)$key) !== 1) { continue; }
+            $path = $prefix === '' ? (string)$key : $prefix.'.'.$key;
+            if (is_array($item)) {
+                if (isset($item['withheld'])) { continue; }
+                $out = array_merge($out, self::flatten($item, $path));
+            } elseif ($item !== '[REDACTED]' && !(is_string($item) && str_starts_with($item, '[WITHHELD:'))) {
+                $out[$path] = $item;
+            }
+        }
+        return $out;
     }
 
     private static function sensitive(string $key): bool
