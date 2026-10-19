@@ -78,8 +78,16 @@
           "edit": { "type": "SelectInstance" }
         },
         {
-          "caption": "Freigegebene Zahlen-/Bool-Eigenschaften (kommagetrennt)",
+          "caption": "Konfiguration lesen",
+          "name": "ReadConfiguration",
+          "width": "200px",
+          "add": false,
+          "edit": { "type": "CheckBox", "caption": "Konfiguration lesen" }
+        },
+        {
+          "caption": "Bisherige Eigenschaftsauswahl (0.3.0)",
           "name": "Properties",
+          "visible": false,
           "width": "auto",
           "add": "",
           "edit": { "type": "ValidationTextBox" }
@@ -88,7 +96,7 @@
     },
     {
       "type": "Label",
-      "caption": "Instanz-Auswahl gibt Status, Modul und Unterobjekte nur lesend frei. Eigenschaften bleiben leer, bis exakte Namen eingetragen sind, z. B. Location.latitude,Location.longitude bei Location. Nur Zahlen und Bool-Werte, keine Texte oder Zugangsdaten. Sperren haben Vorrang."
+      "caption": "Instanz auswählen und bei Bedarf Konfiguration lesen anhaken. Ohne Haken nur Status, Modul und lesbare Unterobjekte. Bekannte Zugangsfelder werden gefiltert, auch in verschachtelten JSON-Werten. Ungewöhnlich benannte Geheimnisse können unerkannt bleiben. Sperren haben Vorrang."
     },
     {
       "type": "Label",

@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-// Read only explicitly named configuration properties, never the entire configuration.
+// Configuration requires an explicit per-instance grant. Category access alone never suffices.
 final class SMCPInstanceReader
 {
     public static function grants(string $json): array
@@ -13,8 +13,9 @@ final class SMCPInstanceReader
         foreach ($rows as $row) {
             $id = is_array($row) ? ($row['InstanceID'] ?? null) : null;
             if ((!is_int($id) && !is_string($id)) || filter_var($id, FILTER_VALIDATE_INT, ['options'=>['min_range'=>1]]) === false
-                || !is_string($row['Properties'] ?? '')) {
-                throw new RuntimeException('Every instance row requires a positive instance ID and property names');
+                || !is_string($row['Properties'] ?? '')
+                || (array_key_exists('ReadConfiguration', $row) && !is_bool($row['ReadConfiguration']))) {
+                throw new RuntimeException('Invalid instance ID or configuration checkbox');
             }
             $id = (int)$id;
             if (isset($grants[$id])) { throw new RuntimeException('Duplicate instance selection'); }
@@ -25,7 +26,9 @@ final class SMCPInstanceReader
                     throw new RuntimeException('Sensitive or invalid instance property selection');
                 }
             }
-            $grants[$id] = $properties;
+            // Legacy 0.3.0 rows keep their exact allowlist until the new checkbox is saved.
+            // An explicit false always overrides old Properties, including a nonempty list.
+            $grants[$id] = array_key_exists('ReadConfiguration', $row) ? $row['ReadConfiguration'] : $properties;
         }
         return $grants;
     }
@@ -64,5 +67,67 @@ final class SMCPInstanceReader
             $values[$name] = $value;
         }
         return $values;
+    }
+
+    public static function configuration(int $id, $grant): array
+    {
+        if (is_array($grant)) { return self::properties($id, $grant); }
+        if ($grant !== true) { return []; }
+        try {
+            $json = @IPS_GetConfiguration($id);
+            if (strlen($json) > 1048576) { throw new RuntimeException('Configuration too large'); }
+            $value = json_decode($json, true, 32, JSON_THROW_ON_ERROR);
+            if (!is_array($value)) { throw new RuntimeException('Invalid configuration'); }
+            return self::filter($value);
+        } catch (Throwable $e) {
+            // Exceptions from modules must not disclose credentials or raw configuration.
+            throw new RuntimeException('Instance configuration unavailable');
+        }
+    }
+
+    private static function sensitive(string $key): bool
+    {
+        $key = preg_replace('/[^a-z0-9]/', '', strtolower($key));
+        return preg_match('/pass|pwd|token|secret|credential|auth|apikey|accesskey|privatekey|clientkey|cookie|certificate|certdata|username|login|session|pincode|^(?:pin|user|key)$/', $key) === 1;
+    }
+
+    private static function filter(array $value, int $depth = 0): array
+    {
+        if ($depth >= 16) { return ['withheld'=>'Maximum configuration nesting reached']; }
+        // Some modules store credentials as [{Name: "Password", Value: "..."}].
+        foreach ($value as $key=>$label) {
+            if (is_string($label) && in_array(strtolower((string)$key), ['name','key','property','header'], true)
+                && self::sensitive($label)) { return ['withheld'=>'[REDACTED]']; }
+        }
+        $out = [];
+        foreach ($value as $key=>$item) {
+            if (self::sensitive((string)$key)) { $out[$key] = '[REDACTED]'; continue; }
+            if (is_array($item)) { $out[$key] = self::filter($item, $depth + 1); continue; }
+            if (is_string($item)) {
+                if (strlen($item) > 65536) { $out[$key] = '[WITHHELD: value too large]'; continue; }
+                $trim = trim($item);
+                if ($trim !== '' && in_array($trim[0], ['{','['], true)) {
+                    try {
+                        $decoded = json_decode($trim, true, 32, JSON_THROW_ON_ERROR);
+                        if (is_array($decoded)) { $out[$key] = self::filter($decoded, $depth + 1); continue; }
+                    } catch (Throwable $e) {}
+                    // Opaque/malformed JSON may hide nested credentials.
+                    $out[$key] = '[WITHHELD: invalid JSON]'; continue;
+                }
+                if (preg_match('/\b(?:Bearer|Basic)\s+\S+|-----BEGIN [A-Z ]*(?:PRIVATE KEY|CERTIFICATE)-----/i', $item)) {
+                    $out[$key] = '[REDACTED]'; continue;
+                }
+                $url = @parse_url($trim);
+                if (is_array($url) && isset($url['scheme'])) {
+                    $redact = isset($url['user']) || isset($url['pass']) || isset($url['fragment']);
+                    foreach (explode('&', $url['query'] ?? '') as $pair) {
+                        if (self::sensitive(urldecode(explode('=', $pair, 2)[0]))) { $redact = true; }
+                    }
+                    if ($redact) { $out[$key] = '[REDACTED]'; continue; }
+                }
+            }
+            $out[$key] = $item;
+        }
+        return $out;
     }
 }

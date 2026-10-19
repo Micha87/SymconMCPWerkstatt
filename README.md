@@ -34,7 +34,7 @@ Ein Tokenwechsel trennt bestehende Clients nach dem Übernehmen.
 - objects_list: root_id, parent_id, objects (direkte Kinder).
 - object_read: gefilterte Metadaten und Werte; Skript-/Ereigniscode nur mit separater Quelltextfreigabe. Verknüpfungen liefern nur zugängliche Ziel-IDs und werden nicht automatisch verfolgt.
 - instances_list: freigegebene Instanzen auflisten, optional mit `module_id` nach Modul-GUID filtern.
-- instance_read: Instanzstatus, Modulidentität, gefilterte Verbindungs-ID und explizit ausgewählte Eigenschaften lesen; ebenfalls in object_read enthalten.
+- instance_read: Instanzstatus, Modulidentität, gefilterte Verbindungs-ID und bei gesetzter Checkbox gefilterte Konfiguration lesen; ebenfalls in object_read enthalten.
 - media_read: nur mit separater Medieninhaltsfreigabe, Text-/Base64-Abschnitte und SHA256; bis 32 MiB pro Datei,
   maximal 64 KiB pro Antwort, standardmäßig 8 KiB. Liest intern die gesamte Datei.
 - category_create / variable_create / variable_set: Objekte anlegen und Werte schreiben.
@@ -64,6 +64,7 @@ php tests/token_auth.php
 php tests/workspace.php
 php tests/access.php
 php tests/instances.php
+php tests/instance_checkbox.php
 ```
 
 `python3 test_connection.py` führt einen lesenden Verbindungstest durch.
@@ -95,8 +96,7 @@ workspace_info nennt alle tatsächlich lesbaren Wurzelkategorien und ihre effekt
 objects_list zeigt nur erlaubte Kinder, markiert sie mit read/write und filtert auch
 ChildrenIDs/HasChildren in object_read. Nicht freigegebene Eltern und gesperrte Link-Ziele
 werden nicht offengelegt. Links verleihen niemals Rechte auf das Ziel.
-Instanz-Konfigurationen werden niemals vollständig ausgelesen. Einzelne Zahlen-/Bool-Eigenschaften
-lassen sich ab 0.3.0 ausdrücklich freigeben (siehe unten).
+Instanz-Konfigurationen benötigen eine zusätzliche Freigabe je Instanz (siehe unten).
 
 ### Einzelne Instanzen freigeben (0.3.0)
 
@@ -107,21 +107,31 @@ bisherigen Lesekategorien sind bereits für die neuen Werkzeuge sichtbar. Nicht 
 Instanzen bleiben unsichtbar, gesperrte Kategorien und die Werkstatt selbst haben immer Vorrang.
 Die neue Liste ist nach einem Update leer. Auch ein Betrieb nur mit Instanzfreigaben ist möglich.
 
-Das zweite Feld enthält exakte Eigenschaftsnamen, kommagetrennt. Leer bedeutet ausschließlich
-Metadaten. Beispiel für die Location-Kerninstanz:
+Ab 0.3.1 genügt die Checkbox **„Konfiguration lesen“** in der jeweiligen Zeile:
 
-```text
-Location.latitude,Location.longitude
-```
+- Ohne Haken: ausschließlich Metadaten und die bereits freigegebenen Unterobjekte.
+- Mit Haken: zusätzlich die Konfiguration dieser Instanz, ohne Schreibfunktionen.
+- Leere Instanzauswahl: keine zusätzlichen Freigaben, insbesondere kein Zugriff auf alle Instanzen.
 
-Es werden nur die ausgewählten Eigenschaften mit IPS_GetProperty gelesen; JSON-Pfade mit
-Punkten geben ausschließlich das benannte Feld zurück. Nur Zahlen und Bool-Werte werden
-ausgegeben. Texte, URLs, vollständige JSON-Strukturen und Arrays werden zurückgehalten.
-Typische Geheimnisnamen (Password, Token, Secret, APIKey usw.) sind nicht auswählbar.
-Trotzdem nur bekannte, unkritische Eigenschaften auswählen: Namensfilter erkennen nicht
-jede denkbare Benennung eines Geheimnisses. Neue Eigenschaftsfreigaben gelten nur für die
-jeweilige Instanz und werden nicht an ihre Kinder vererbt. Unbekannte Eigenschaften liefern
-einen allgemeinen Fehler ohne Konfigurationswerte. Die Modulkonfiguration selbst bleibt gesperrt.
+Für Location also Instanz auswählen und den Haken setzen. Der JSON-Wert `Location` wird
+als Objekt mit `latitude` und `longitude` zurückgegeben; es müssen keine Namen eingegeben werden.
+
+Bekannte Zugangsfelder (z. B. Password, Token, APIKey, UserName, Authorization) werden rekursiv
+durch `[REDACTED]` ersetzt, auch innerhalb JSON-codierter Strings und Listen. URLs mit
+Anmeldedaten, bekannten Geheimnisparametern oder Fragmenten sowie Auth-Header und PEM-Schlüssel
+werden zurückgehalten. Fehler liefern keine Rohkonfiguration. Grenzen: maximal 1 MiB Rohdaten,
+64 KiB pro Textwert und 16 Ebenen Filtertiefe. Fehlerhafte JSON-Teilwerte werden zurückgehalten.
+
+Die Filterung erkennt bekannte Namen und Muster, sie garantiert keine Erkennung beliebig
+benannter Geheimnisse in fremden Modulen. Konfigurationslesezugriff deshalb nur für Instanzen
+aktivieren, deren Daten an den verbundenen Client übermittelt werden dürfen. Die Freigabe
+wird nicht an untergeordnete Instanzkonfigurationen vererbt. Sperrkategorien und die
+Werkstatt-Instanz bleiben auch bei gesetztem Haken gesperrt.
+
+Update von 0.3.0: Alte Eigenschaftslisten erweitern sich nicht automatisch. Solange eine
+gespeicherte Zeile noch keine Checkbox-Einstellung besitzt, bleibt die alte gezielte Auswahl
+wirksam. Beim Bearbeiten der Zeile ausdrücklich den gewünschten Haken setzen und übernehmen.
+Ein gespeicherter ausgeschalteter Haken deaktiviert auch eine alte Eigenschaftsliste.
 
 Nach dem Modulupdate gewünschte Instanzen auswählen, Änderungen übernehmen und in ChatGPT
 die Werkzeugliste aktualisieren. Das Update aktiviert keine Instanzen automatisch und ändert

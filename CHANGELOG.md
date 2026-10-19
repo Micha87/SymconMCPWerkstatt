@@ -1,5 +1,14 @@
 # Änderungen
 
+## 0.3.1
+
+- Checkbox „Konfiguration lesen“ pro ausgewählter Instanz statt manueller Eigenschaftsliste.
+- Ohne Haken keine Konfigurationsabfrage; leere Instanzauswahl erteilt keine Freigaben.
+- Konfiguration mit rekursiver Filterung bekannter Zugangsfelder, JSON-Listen/-Objekte eingeschlossen.
+- URLs mit Anmeldedaten/Tokenparametern, Auth-Header und Schlüsselmaterial werden zurückgehalten.
+- 0.3.0-Eigenschaftsfreigaben bleiben bis zum Speichern der neuen Checkbox eingeschränkt erhalten.
+- Keine automatische Erweiterung bestehender Rechte und keine Instanz-Schreibfunktionen.
+
 ## 0.3.0
 
 - Einzelne Instanzen einschließlich Kerninstanzen und ihrer Unterobjekte nur lesend freigeben.
