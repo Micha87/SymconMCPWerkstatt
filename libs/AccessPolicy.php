@@ -1,26 +1,35 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/InstanceReader.php';
+
 final class SMCPAccessPolicy
 {
     private int $workspace;
     private array $readRoots;
     private array $deniedRoots;
+    private array $readInstances;
     private int $instanceID;
 
-    public function __construct(int $workspace, string $readRows, string $deniedRows, int $instanceID)
+    public function __construct(int $workspace, string $readRows, string $deniedRows, int $instanceID, string $instanceRows = '[]')
     {
         $this->workspace = $workspace;
         $this->readRoots = self::categories($readRows);
         $this->deniedRoots = self::categories($deniedRows);
         $this->instanceID = $instanceID;
+        $this->readInstances = array_keys(SMCPInstanceReader::grants($instanceRows));
+        foreach ($this->readInstances as $id) {
+            if (!IPS_ObjectExists($id) || IPS_GetObject($id)['ObjectType'] !== 1) {
+                throw new RuntimeException('Instance access configuration contains a missing or invalid instance');
+            }
+        }
         foreach (array_unique(array_merge($workspace > 0 ? [$workspace] : [], $this->readRoots, $this->deniedRoots)) as $id) {
             if (!IPS_ObjectExists($id) || IPS_GetObject($id)['ObjectType'] !== 0) {
                 throw new RuntimeException('Access configuration contains a missing or invalid category');
             }
         }
-        if ($workspace < 0 || ($workspace === 0 && $this->readRoots === [])) {
-            throw new RuntimeException('Configure a workspace or at least one read-only category');
+        if ($workspace < 0 || ($workspace === 0 && $this->readRoots === [] && $this->readInstances === [])) {
+            throw new RuntimeException('Configure a workspace, read-only category or instance');
         }
     }
 
@@ -50,7 +59,7 @@ final class SMCPAccessPolicy
             if (isset($seen[$cursor]) || count($seen) >= 256 || !IPS_ObjectExists($cursor)) { return 'none'; }
             $seen[$cursor] = true;
             if ($cursor === $this->instanceID || in_array($cursor, $this->deniedRoots, true)) { return 'none'; }
-            if (in_array($cursor, $this->readRoots, true)) { $read = true; }
+            if (in_array($cursor, $this->readRoots, true) || in_array($cursor, $this->readInstances, true)) { $read = true; }
             if ($cursor === $this->workspace) { $workspace = true; }
         }
         return $read ? 'read' : ($workspace ? 'write' : 'none');
@@ -61,6 +70,6 @@ final class SMCPAccessPolicy
     public function workspace(): int { return $this->workspace; }
     public function readableRoots(): array
     {
-        return array_values(array_filter(array_unique(array_merge($this->workspace > 0 ? [$this->workspace] : [], $this->readRoots)), fn(int $id): bool => $this->canRead($id)));
+        return array_values(array_filter(array_unique(array_merge($this->workspace > 0 ? [$this->workspace] : [], $this->readRoots, $this->readInstances)), fn(int $id): bool => $this->canRead($id)));
     }
 }

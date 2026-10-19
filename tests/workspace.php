@@ -3,7 +3,7 @@
 class IPSModuleStrict
 {
     public int $InstanceID = 23968;
-    public array $props = ['RootID'=>14846,'AllowWrite'=>true,'AllowExecute'=>false,'DebugEnabled'=>true,'Token'=>'existing-token-kept-until-apply','ReadOnlyCategories'=>'[]','DeniedCategories'=>'[]','AllowScriptSourceRead'=>false,'AllowMediaContentRead'=>true];
+    public array $props = ['RootID'=>14846,'AllowWrite'=>true,'AllowExecute'=>false,'DebugEnabled'=>true,'Token'=>'existing-token-kept-until-apply','ReadOnlyCategories'=>'[]','DeniedCategories'=>'[]','ReadOnlyInstances'=>'[]','AllowScriptSourceRead'=>false,'AllowMediaContentRead'=>true];
     public array $fields = [];
     public array $debug = [];
     public function Create(): void {}
@@ -29,7 +29,7 @@ function IPS_SetScriptContent($id,$source) { $GLOBALS['objects'][$id]['source']=
 function IPS_LogMessage($sender,$message) {}
 $GLOBALS['connect_active'] = true;
 function IPS_GetInstanceListByModuleID($id) { return [90000]; }
-function IPS_GetInstance($id) { return ['InstanceStatus'=>$GLOBALS['connect_active'] ? 102 : 104]; }
+function IPS_GetInstance($id) { return $GLOBALS['instances'][$id] ?? ['InstanceStatus'=>$GLOBALS['connect_active'] ? 102 : 104]; }
 function CC_GetConnectURL($id) { return 'http://test-connect.ipmagic.de/'; }
 require_once __DIR__ . '/../MCPDeveloper/module.php';
 $m = new SymconMCPWerkstatt();

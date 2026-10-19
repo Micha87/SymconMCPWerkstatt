@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../libs/TokenAuth.php';
 require_once __DIR__ . '/../libs/MediaReader.php';
 require_once __DIR__ . '/../libs/AccessPolicy.php';
+require_once __DIR__ . '/../libs/InstanceReader.php';
 
 class SymconMCPWerkstatt extends IPSModuleStrict
 {
@@ -16,6 +17,7 @@ class SymconMCPWerkstatt extends IPSModuleStrict
         $this->RegisterPropertyInteger('RootID', 0);
         $this->RegisterPropertyString('ReadOnlyCategories', '[]');
         $this->RegisterPropertyString('DeniedCategories', '[]');
+        $this->RegisterPropertyString('ReadOnlyInstances', '[]');
         $this->RegisterPropertyBoolean('AllowScriptSourceRead', false);
         $this->RegisterPropertyBoolean('AllowMediaContentRead', false);
         $this->RegisterPropertyBoolean('AllowWrite', false);
@@ -167,8 +169,8 @@ class SymconMCPWerkstatt extends IPSModuleStrict
                     $versions = ['2025-03-26','2025-06-18','2025-11-25'];
                     $version = in_array($p['protocolVersion'] ?? '', $versions, true) ? $p['protocolVersion'] : '2025-03-26';
                     $result = ['protocolVersion'=>$version,'capabilities'=>['tools'=>['listChanged'=>false]],
-                        'serverInfo'=>['name'=>'Symcon MCP Werkstatt','version'=>'0.2.0'],
-                        'instructions'=>'Use workspace_info for readable roots and write permissions. Denied categories are invisible; read-only categories cannot be modified or executed, including overlaps. Source and media contents require separate grants. Omit parent_id to create in the workspace. Arbitrary PHP execution is NOT sandboxed and can bypass object restrictions.'];
+                        'serverInfo'=>['name'=>'Symcon MCP Werkstatt','version'=>'0.3.0'],
+                        'instructions'=>'Use workspace_info for readable roots and write permissions; use instances_list and instance_read for permitted instances including selected core instances. Instance configuration exposes only explicitly selected numeric/boolean properties. Denied categories are invisible; read-only categories and selected instances cannot be modified or executed, including overlaps. Source and media contents require separate grants. Omit parent_id to create in the workspace. Arbitrary PHP execution is NOT sandboxed and can bypass object restrictions.'];
                     break;
                 case 'ping': $result = new stdClass(); break;
                 case 'tools/list': $result = ['tools'=>$this->tools()]; break;
@@ -204,7 +206,9 @@ class SymconMCPWerkstatt extends IPSModuleStrict
         $defs = [
             ['workspace_info','Return workspace and readable category roots with permissions. Blocked categories are not disclosed.', [], [], false],
             ['objects_list','Return visible direct children with read/write access labels. Blocked children are excluded. Omit parent_id for the workspace, or readable roots if no workspace is available.', ['parent_id'=>$int], [], false],
-            ['object_read','Read accessible metadata and variable values. Script/event source and media content require separate grants. Denied children and link targets are hidden; links never grant extra access.', ['id'=>$int], ['id'], false]
+            ['object_read','Read accessible metadata, variable values and instance information. Only explicitly selected numeric/boolean instance properties are exposed. Source and media require separate grants. Denied children and link targets stay hidden.', ['id'=>$int], ['id'], false],
+            ['instances_list','List permitted instances including explicitly selected core instances; optionally filter by module GUID. Denied instances stay hidden.', ['module_id'=>$str], [], false],
+            ['instance_read','Read permitted instance status, module identity, filtered connection ID and explicitly selected numeric/boolean properties. No configuration writes.', ['id'=>$int], ['id'], false]
         ];
         if ($this->ReadPropertyBoolean('AllowMediaContentRead')) {
             $defs[] = ['media_read','Read a media file from accessible categories; requires separate media-content permission. Returns UTF-8 or Base64 chunks and SHA256. Default 8192 bytes, max 65536 per reply, max file 32 MiB. Use next_offset and expected_sha256.', ['id'=>$int,'offset'=>['type'=>'integer','minimum'=>0],'limit'=>['type'=>'integer','minimum'=>1,'maximum'=>65536],'expected_sha256'=>$str], ['id'], false];
@@ -248,7 +252,8 @@ class SymconMCPWerkstatt extends IPSModuleStrict
     {
         return new SMCPAccessPolicy($this->ReadPropertyInteger('RootID'),
             $this->ReadPropertyString('ReadOnlyCategories'),
-            $this->ReadPropertyString('DeniedCategories'), $this->InstanceID);
+            $this->ReadPropertyString('DeniedCategories'), $this->InstanceID,
+            $this->ReadPropertyString('ReadOnlyInstances'));
     }
 
     private function hasWritableWorkspace(): bool
@@ -296,6 +301,24 @@ class SymconMCPWerkstatt extends IPSModuleStrict
 
     private function call(string $name, array $a)
     {
+        if ($name === 'instances_list') {
+            $policy = $this->policy(); $out = [];
+            if (isset($a['module_id']) && preg_match('/^\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}$/iD', $a['module_id']) !== 1) {
+                throw new InvalidArgumentException('Invalid module GUID');
+            }
+            $ids = IPS_GetInstanceList(); sort($ids, SORT_NUMERIC);
+            foreach ($ids as $id) {
+                if (!$policy->canRead($id)) { continue; }
+                $instance = SMCPInstanceReader::metadata($id, fn(int $target): bool => $policy->canRead($target));
+                if (isset($a['module_id']) && strcasecmp($instance['ModuleInfo']['ModuleID'] ?? '', $a['module_id']) !== 0) { continue; }
+                $out[] = array_merge($this->objectSummary($id, $policy), ['instance'=>$instance]);
+            }
+            return ['instances'=>$out];
+        }
+        if ($name === 'instance_read') {
+            $this->check($a['id'], 1);
+            return $this->call('object_read', ['id'=>$a['id']]);
+        }
         if ($name === 'workspace_info') {
             $policy = $this->policy(); $root = $policy->workspace();
             $rootReadable = $policy->canRead($root); $writable = $rootReadable && $policy->canWrite($root);
@@ -307,6 +330,7 @@ class SymconMCPWerkstatt extends IPSModuleStrict
                 'allow_execute'=>$writable && $this->ReadPropertyBoolean('AllowExecute'),
                 'allow_script_source_read'=>$this->ReadPropertyBoolean('AllowScriptSourceRead'),
                 'allow_media_content_read'=>$this->ReadPropertyBoolean('AllowMediaContentRead'),
+                'instance_configuration_policy'=>'Only explicitly selected numeric/boolean properties; no free text or complete configuration',
                 'php_execution_sandboxed'=>false];
         }
         if ($name === 'objects_list') {
@@ -325,6 +349,14 @@ class SymconMCPWerkstatt extends IPSModuleStrict
         if ($name === 'object_read') {
             $id = $a['id']; $o = $this->safeObject($id);
             $out = ['id'=>$id,'object'=>$o,'access'=>$this->policy()->level($id)];
+            if ($o['ObjectType'] === 1) {
+                $policy = $this->policy();
+                $out['instance'] = SMCPInstanceReader::metadata($id, fn(int $target): bool => $policy->canRead($target));
+                $grants = SMCPInstanceReader::grants($this->ReadPropertyString('ReadOnlyInstances'));
+                $names = $grants[$id] ?? [];
+                $out['configuration_readable'] = $names !== [];
+                $out['configuration'] = (object)SMCPInstanceReader::properties($id, $names);
+            }
             if ($o['ObjectType'] === 2) { $out['variable'] = IPS_GetVariable($id); $out['value'] = GetValue($id); }
             if ($o['ObjectType'] === 3) {
                 $out['source_readable'] = $this->ReadPropertyBoolean('AllowScriptSourceRead');

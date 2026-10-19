@@ -1,5 +1,15 @@
 # Änderungen
 
+## 0.3.0
+
+- Einzelne Instanzen einschließlich Kerninstanzen und ihrer Unterobjekte nur lesend freigeben.
+- Neue Werkzeuge instances_list (optional nach Modul-GUID) und instance_read.
+- object_read ergänzt um Status, Modulidentität und gefilterte Verbindungs-ID.
+- Eigenschaften nur über explizite Namensliste; ausschließlich Zahlen und Bool-Werte.
+- JSON-Felder gezielt lesbar, z. B. Location.latitude und Location.longitude.
+- Gesperrte Kategorien und eigene Modulinstanz behalten Vorrang; keine Instanz-Schreibfunktionen.
+- Standardmäßig leere Instanzfreigabe, bestehende Kategorie-Rechte bleiben bestehen.
+
 ## 0.2.0
 
 - Mehrere zusätzliche Lesekategorien und mehrere rekursive Sperrkategorien.

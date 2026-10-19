@@ -63,6 +63,34 @@
       ]
     },
     {
+      "type": "List",
+      "name": "ReadOnlyInstances",
+      "caption": "Zusätzliche Instanzen – nur lesen (z. B. Kerninstanz Location)",
+      "rowCount": 4,
+      "add": true,
+      "delete": true,
+      "columns": [
+        {
+          "caption": "Instanz mit Unterobjekten",
+          "name": "InstanceID",
+          "width": "300px",
+          "add": 0,
+          "edit": { "type": "SelectInstance" }
+        },
+        {
+          "caption": "Freigegebene Zahlen-/Bool-Eigenschaften (kommagetrennt)",
+          "name": "Properties",
+          "width": "auto",
+          "add": "",
+          "edit": { "type": "ValidationTextBox" }
+        }
+      ]
+    },
+    {
+      "type": "Label",
+      "caption": "Instanz-Auswahl gibt Status, Modul und Unterobjekte nur lesend frei. Eigenschaften bleiben leer, bis exakte Namen eingetragen sind, z. B. Location.latitude,Location.longitude bei Location. Nur Zahlen und Bool-Werte, keine Texte oder Zugangsdaten. Sperren haben Vorrang."
+    },
+    {
       "type": "Label",
       "caption": "Sperren haben immer Vorrang. Nur-Lesen hat auch innerhalb des Arbeitsbereichs Vorrang. Die Modulinstanz und ihre Kinder sind gesperrt."
     },
@@ -105,7 +133,7 @@
     {
       "code": 200,
       "icon": "error",
-      "caption": "Token oder Kategorien-Konfiguration ungültig / kein lesbarer Bereich"
+      "caption": "Token oder Kategorie-/Instanzauswahl ungültig / kein lesbarer Bereich"
     }
   ],
   "actions": [

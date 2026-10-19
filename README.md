@@ -33,6 +33,8 @@ Ein Tokenwechsel trennt bestehende Clients nach dem Übernehmen.
 - workspace_info: Kategorie-ID, Name und Freigaben.
 - objects_list: root_id, parent_id, objects (direkte Kinder).
 - object_read: gefilterte Metadaten und Werte; Skript-/Ereigniscode nur mit separater Quelltextfreigabe. Verknüpfungen liefern nur zugängliche Ziel-IDs und werden nicht automatisch verfolgt.
+- instances_list: freigegebene Instanzen auflisten, optional mit `module_id` nach Modul-GUID filtern.
+- instance_read: Instanzstatus, Modulidentität, gefilterte Verbindungs-ID und explizit ausgewählte Eigenschaften lesen; ebenfalls in object_read enthalten.
 - media_read: nur mit separater Medieninhaltsfreigabe, Text-/Base64-Abschnitte und SHA256; bis 32 MiB pro Datei,
   maximal 64 KiB pro Antwort, standardmäßig 8 KiB. Liest intern die gesamte Datei.
 - category_create / variable_create / variable_set: Objekte anlegen und Werte schreiben.
@@ -61,11 +63,14 @@ Außerhalb von Symcon mit PHP ausführen:
 php tests/token_auth.php
 php tests/workspace.php
 php tests/access.php
+php tests/instances.php
 ```
 
 `python3 test_connection.py` führt einen lesenden Verbindungstest durch.
 Tests arbeiten mit Symcon-Testdoubles. Version 0.1.7 wurde vom Anwender in Symcon
 bestätigt; Medienzugriff in 0.1.8 ist lokal getestet, Live-Prüfung steht noch aus.
+Die Instanz-Erweiterung 0.3.0 wurde mit PHP-Testdoubles einschließlich aller bestehenden
+Zugriffs-, Medien- und Tokenprüfungen getestet. Live-Prüfung der neuen Formularauswahl steht aus.
 
 ## Lese-, Schreib- und Sperrbereiche (0.2.0)
 
@@ -90,7 +95,37 @@ workspace_info nennt alle tatsächlich lesbaren Wurzelkategorien und ihre effekt
 objects_list zeigt nur erlaubte Kinder, markiert sie mit read/write und filtert auch
 ChildrenIDs/HasChildren in object_read. Nicht freigegebene Eltern und gesperrte Link-Ziele
 werden nicht offengelegt. Links verleihen niemals Rechte auf das Ziel.
-Instanz-Konfigurationen werden nicht ausgelesen.
+Instanz-Konfigurationen werden niemals vollständig ausgelesen. Einzelne Zahlen-/Bool-Eigenschaften
+lassen sich ab 0.3.0 ausdrücklich freigeben (siehe unten).
+
+### Einzelne Instanzen freigeben (0.3.0)
+
+Unter „Zusätzliche Instanzen – nur lesen“ können auch Kern-, I/O-, Splitter-, Konfigurator-,
+Discovery- und Visualisierungsinstanzen ausgewählt werden. Die Freigabe gilt für die Instanz
+und ihre Unterobjekte; sie gewährt keinerlei Schreib- oder Ausführungsrechte. Instanzen in
+bisherigen Lesekategorien sind bereits für die neuen Werkzeuge sichtbar. Nicht freigegebene
+Instanzen bleiben unsichtbar, gesperrte Kategorien und die Werkstatt selbst haben immer Vorrang.
+Die neue Liste ist nach einem Update leer. Auch ein Betrieb nur mit Instanzfreigaben ist möglich.
+
+Das zweite Feld enthält exakte Eigenschaftsnamen, kommagetrennt. Leer bedeutet ausschließlich
+Metadaten. Beispiel für die Location-Kerninstanz:
+
+```text
+Location.latitude,Location.longitude
+```
+
+Es werden nur die ausgewählten Eigenschaften mit IPS_GetProperty gelesen; JSON-Pfade mit
+Punkten geben ausschließlich das benannte Feld zurück. Nur Zahlen und Bool-Werte werden
+ausgegeben. Texte, URLs, vollständige JSON-Strukturen und Arrays werden zurückgehalten.
+Typische Geheimnisnamen (Password, Token, Secret, APIKey usw.) sind nicht auswählbar.
+Trotzdem nur bekannte, unkritische Eigenschaften auswählen: Namensfilter erkennen nicht
+jede denkbare Benennung eines Geheimnisses. Neue Eigenschaftsfreigaben gelten nur für die
+jeweilige Instanz und werden nicht an ihre Kinder vererbt. Unbekannte Eigenschaften liefern
+einen allgemeinen Fehler ohne Konfigurationswerte. Die Modulkonfiguration selbst bleibt gesperrt.
+
+Nach dem Modulupdate gewünschte Instanzen auswählen, Änderungen übernehmen und in ChatGPT
+die Werkzeugliste aktualisieren. Das Update aktiviert keine Instanzen automatisch und ändert
+keine Geräte- oder Netzwerkkonfiguration.
 
 ### Quelltexte und Medien separat freigeben
 
