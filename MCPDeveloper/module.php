@@ -37,6 +37,26 @@ class SymconMCPWerkstatt extends IPSModuleStrict
         $this->SetSummary('/hook/symcon-mcp-' . $this->InstanceID);
     }
 
+    public function GetConfigurationForm(): string
+    {
+        $form = json_decode(file_get_contents(__DIR__.'/form.json'), true, 64, JSON_THROW_ON_ERROR);
+        foreach ($form['elements'] as &$element) {
+            $name = $element['name'] ?? '';
+            if (!in_array($name, ['ReadOnlyCategories','ReadOnlyInstances'], true)) { continue; }
+            $rows = json_decode($this->ReadPropertyString($name), true, 32, JSON_THROW_ON_ERROR);
+            if (!is_array($rows) || !array_is_list($rows)) { throw new RuntimeException('Invalid access list'); }
+            foreach ($rows as &$row) {
+                if (!is_array($row)) { throw new RuntimeException('Invalid access row'); }
+                $row['Access'] = SMCPAccessPolicy::access($row);
+            }
+            unset($row);
+            $element['loadValuesFromConfiguration'] = false;
+            $element['values'] = $rows;
+        }
+        unset($element);
+        return json_encode($form, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+    }
+
     public function UIGenerateToken(): void
     {
         // Draft only: existing connections remain valid until the user clicks Apply.
@@ -103,7 +123,7 @@ class SymconMCPWerkstatt extends IPSModuleStrict
     }
 
     // Editor-only helpers: expose property names, never configuration values.
-    public function UIInstanceAccessForm(int $instance, bool $read, bool $all, string $selection): string
+    public function UIInstanceAccessForm(int $instance, bool $read, bool $all, string $selection, string $access = 'read'): string
     {
         $rows = $this->instancePropertyRows($instance, $selection);
         return json_encode([
@@ -120,7 +140,13 @@ class SymconMCPWerkstatt extends IPSModuleStrict
                 'columns'=>[
                     ['name'=>'Allowed','caption'=>'Lesen erlauben','width'=>'140px','add'=>false,'edit'=>['type'=>'CheckBox']],
                     ['name'=>'Property','caption'=>'Eigenschaft','width'=>'auto','save'=>true]
-                ],'values'=>$rows]
+                ],'values'=>$rows],
+            ['type'=>'Select','name'=>'Access','caption'=>'Zugriffsrechte (einschließlich Unterobjekte)',
+                'options'=>[
+                    ['caption'=>'Kein Zugriff','value'=>'none'],
+                    ['caption'=>'Nur lesen','value'=>'read'],
+                    ['caption'=>'Lesen und schreiben','value'=>'write']
+                ],'value'=>$access]
         ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
     }
 
@@ -129,6 +155,7 @@ class SymconMCPWerkstatt extends IPSModuleStrict
         $this->UpdateFormField('PropertySelection','values',json_encode($this->instancePropertyRows($instance, '[]')));
         // Selecting a different instance must not transfer an old configuration grant.
         $this->UpdateFormField('ReadConfiguration','value',false);
+        $this->UpdateFormField('Access','value','read');
         $this->UpdateFormField('AllProperties','value',true);
         $this->UIInstanceModeChanged(false, true);
     }
@@ -144,9 +171,13 @@ class SymconMCPWerkstatt extends IPSModuleStrict
         if ($instance <= 0) { return []; }
         try {
             // The locally selected draft need not be saved yet. Denies still apply.
+            $draft = json_decode($this->ReadPropertyString('ReadOnlyInstances'), true, 32, JSON_THROW_ON_ERROR);
+            $found = false;
+            foreach ($draft as $row) { if ((int)($row['InstanceID'] ?? 0) === $instance) { $found = true; } }
+            if (!$found) { $draft[] = ['InstanceID'=>$instance]; }
             $policy = new SMCPAccessPolicy($this->ReadPropertyInteger('RootID'),
                 $this->ReadPropertyString('ReadOnlyCategories'), $this->ReadPropertyString('DeniedCategories'),
-                $this->InstanceID, json_encode([['InstanceID'=>$instance]]));
+                $this->InstanceID, json_encode($draft));
             if (!$policy->canRead($instance)) { return []; }
             $previous = json_decode($selection, true, 32, JSON_THROW_ON_ERROR);
             if (!is_array($previous)) { return []; }
@@ -223,8 +254,8 @@ class SymconMCPWerkstatt extends IPSModuleStrict
                     $versions = ['2025-03-26','2025-06-18','2025-11-25'];
                     $version = in_array($p['protocolVersion'] ?? '', $versions, true) ? $p['protocolVersion'] : '2025-03-26';
                     $result = ['protocolVersion'=>$version,'capabilities'=>['tools'=>['listChanged'=>false]],
-                        'serverInfo'=>['name'=>'Symcon MCP Werkstatt','version'=>'0.3.2'],
-                        'instructions'=>'Use workspace_info for readable roots and write permissions; use instances_list and instance_read for permitted instances including selected core instances. Instance configuration requires an explicit per-instance checkbox; known credential fields are redacted. Denied categories are invisible; read-only categories and selected instances cannot be modified or executed, including overlaps. Source and media contents require separate grants. Omit parent_id to create in the workspace. Arbitrary PHP execution is NOT sandboxed and can bypass object restrictions.'];
+                        'serverInfo'=>['name'=>'Symcon MCP Werkstatt','version'=>'0.4.0'],
+                        'instructions'=>'Use workspace_info for readable_roots, writable_roots and global write/execute permissions. Each selected category and instance has none/read/write access, including descendants. Denies take priority over read-only, which takes priority over write grants. Instance configuration reading still requires its separate grant and filters known credentials. Source and media contents require separate grants. Omit parent_id only to create in the default workspace; otherwise use an explicitly writable parent. Arbitrary PHP execution is NOT sandboxed and can bypass object restrictions.'];
                     break;
                 case 'ping': $result = new stdClass(); break;
                 case 'tools/list': $result = ['tools'=>$this->tools()]; break;
@@ -267,16 +298,16 @@ class SymconMCPWerkstatt extends IPSModuleStrict
         if ($this->ReadPropertyBoolean('AllowMediaContentRead')) {
             $defs[] = ['media_read','Read a media file from accessible categories; requires separate media-content permission. Returns UTF-8 or Base64 chunks and SHA256. Default 8192 bytes, max 65536 per reply, max file 32 MiB. Use next_offset and expected_sha256.', ['id'=>$int,'offset'=>['type'=>'integer','minimum'=>0],'limit'=>['type'=>'integer','minimum'=>1,'maximum'=>65536],'expected_sha256'=>$str], ['id'], false];
         }
-        if ($this->ReadPropertyBoolean('AllowWrite') && $this->hasWritableWorkspace()) {
-            $defs[] = ['category_create','Create category; omit parent_id to use workspace root.', ['parent_id'=>$int,'name'=>$str], ['name'], true];
-            $defs[] = ['variable_create','Create variable; omit parent_id for workspace root. type: 0 boolean, 1 integer, 2 float, 3 string.', ['parent_id'=>$int,'name'=>$str,'type'=>['type'=>'integer','minimum'=>0,'maximum'=>3]], ['name','type'], true];
+        if ($this->ReadPropertyBoolean('AllowWrite') && $this->hasWritableScope()) {
+            $defs[] = ['category_create','Create category under a writable category or instance; omit parent_id only to use the default workspace. Discover writable_roots with workspace_info.', ['parent_id'=>$int,'name'=>$str], ['name'], true];
+            $defs[] = ['variable_create','Create variable under a writable category, instance or script; omit parent_id only to use the default workspace. type: 0 boolean, 1 integer, 2 float, 3 string.', ['parent_id'=>$int,'name'=>$str,'type'=>['type'=>'integer','minimum'=>0,'maximum'=>3]], ['name','type'], true];
             $defs[] = ['variable_set','Set stored variable value, without device action.', ['id'=>$int,'value'=>['type'=>['boolean','integer','number','string']]], ['id','value'], true];
             $defs[] = ['script_put','Create PHP script (omit parent_id for workspace root) or replace source. For updates provide expected_sha256 from object_read. PHP has full system privileges when executed.', ['parent_id'=>$int,'id'=>$int,'name'=>$str,'source'=>$str,'expected_sha256'=>$str], ['source'], true];
             if ($this->ReadPropertyBoolean('AllowExecute')) {
                 $defs[] = ['event_interval','Create inactive cyclic event under a PHP script, or update one. seconds 1..86400. Enabling permits full-privilege execution.', ['script_id'=>$int,'event_id'=>$int,'seconds'=>['type'=>'integer','minimum'=>1,'maximum'=>86400],'active'=>['type'=>'boolean']], ['script_id','seconds','active'], true];
             }
         }
-        if ($this->ReadPropertyBoolean('AllowExecute') && $this->hasWritableWorkspace()) {
+        if ($this->ReadPropertyBoolean('AllowExecute') && $this->hasWritableScope()) {
             $defs[] = ['script_run','Execute PHP script asynchronously with full Symcon privileges; returns acceptance, not script result.', ['id'=>$int], ['id'], true];
         }
         $out = [];
@@ -310,17 +341,17 @@ class SymconMCPWerkstatt extends IPSModuleStrict
             $this->ReadPropertyString('ReadOnlyInstances'));
     }
 
-    private function hasWritableWorkspace(): bool
+    private function hasWritableScope(): bool
     {
         $policy = $this->policy();
-        return $policy->workspace() > 0 && $policy->canWrite($policy->workspace());
+        return $policy->writableRoots() !== [];
     }
 
     private function check(int $id, ?int $type = null, bool $write = false): array
     {
         $policy = $this->policy();
         if (!$policy->canRead($id)) { throw new RuntimeException('Object unavailable or not permitted'); }
-        if ($write && !$policy->canWrite($id)) { throw new RuntimeException('Read-only category: write and execution denied'); }
+        if ($write && !$policy->canWrite($id)) { throw new RuntimeException('Read-only category or instance: write and execution denied'); }
         $o = IPS_GetObject($id);
         if ($type !== null && $o['ObjectType'] !== $type) { throw new RuntimeException('Wrong object type'); }
         return $o;
@@ -375,11 +406,13 @@ class SymconMCPWerkstatt extends IPSModuleStrict
         }
         if ($name === 'workspace_info') {
             $policy = $this->policy(); $root = $policy->workspace();
-            $rootReadable = $policy->canRead($root); $writable = $rootReadable && $policy->canWrite($root);
+            $rootReadable = $policy->canRead($root); $writable = $policy->writableRoots() !== [];
             $roots = [];
             foreach ($policy->readableRoots() as $id) { $roots[] = $this->objectSummary($id, $policy); }
+            $writeRoots = [];
+            foreach ($policy->writableRoots() as $id) { $writeRoots[] = $this->objectSummary($id, $policy); }
             return ['root_id'=>$rootReadable ? $root : null,
-                'root_name'=>$rootReadable ? IPS_GetName($root) : null,'readable_roots'=>$roots,
+                'root_name'=>$rootReadable ? IPS_GetName($root) : null,'readable_roots'=>$roots,'writable_roots'=>$writeRoots,
                 'allow_write'=>$writable && $this->ReadPropertyBoolean('AllowWrite'),
                 'allow_execute'=>$writable && $this->ReadPropertyBoolean('AllowExecute'),
                 'allow_script_source_read'=>$this->ReadPropertyBoolean('AllowScriptSourceRead'),
@@ -443,7 +476,9 @@ class SymconMCPWerkstatt extends IPSModuleStrict
             $id = 0;
             switch ($name) {
                 case 'category_create': case 'variable_create':
-                    $this->check($a['parent_id'],0,true);
+                    $parent = $this->check($a['parent_id'],null,true);
+                    $types = $name === 'variable_create' ? [0,1,3] : [0,1];
+                    if (!in_array($parent['ObjectType'],$types,true)) { throw new RuntimeException('Invalid creation parent type'); }
                     $id = $name === 'category_create' ? IPS_CreateCategory() : IPS_CreateVariable($a['type']);
                     IPS_SetParent($id,$a['parent_id']); IPS_SetName($id,$a['name']); break;
                 case 'variable_set':
@@ -459,7 +494,9 @@ class SymconMCPWerkstatt extends IPSModuleStrict
                         if (!$this->ReadPropertyBoolean('AllowExecute')) { throw new RuntimeException('Updating existing PHP requires execution permission'); }
                     } else {
                         if (!isset($a['name'])) { throw new RuntimeException('Create requires name'); }
-                        $this->check($a['parent_id'],0,true); $id=IPS_CreateScript(0); IPS_SetParent($id,$a['parent_id']); IPS_SetName($id,$a['name']);
+                        $parent=$this->check($a['parent_id'],null,true);
+                        if (!in_array($parent['ObjectType'],[0,1],true)) { throw new RuntimeException('Invalid script parent type'); }
+                        $id=IPS_CreateScript(0); IPS_SetParent($id,$a['parent_id']); IPS_SetName($id,$a['name']);
                     }
                     IPS_SetScriptContent($id,$a['source']); break;
                 case 'script_run':

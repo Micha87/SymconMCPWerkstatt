@@ -2,7 +2,8 @@
 
 MCP-Zugang für Symcon ab 8.1: Objektstruktur lesen, Kategorien und Variablen anlegen,
 PHP-Skripte bearbeiten und ausführen sowie zyklische Ereignisse konfigurieren.
-Version 0.2.0 ergänzt zusätzliche Lesebereiche, gesperrte Kategorien und getrennte Freigaben für Quelltexte und Medien. Medienobjekte können zur Untersuchung von IPSView-Dateien gelesen werden.
+Version 0.4.0 bietet Rechte je Kategorie und Instanz sowie getrennte Freigaben für
+Instanzkonfigurationen, Quelltexte und Medien. Medienobjekte können zur Untersuchung von IPSView-Dateien gelesen werden.
 IPSView-Seiten können damit noch nicht bearbeitet werden.
 
 ## Installation
@@ -17,7 +18,8 @@ Instanz nicht löschen: Bibliotheks- und Modul-ID bleiben identisch.
 
 Token im Modul erzeugen und mit „Änderungen übernehmen“ speichern. Zugang aktivieren.
 Schreib- und Ausführungsrechte sind separat und standardmäßig aus.
-RootID 0 bedeutet: kein Arbeitsbereich; ein Zugang mit ausschließlich Lesebereichen ist möglich.
+RootID 0 bedeutet: kein Standardziel für neue Objekte. Zusätzliche Lese- und Schreibbereiche
+können trotzdem ausgewählt werden; beim Anlegen muss dann parent_id angegeben werden.
 
 Endpunkt: `/hook/symcon-mcp-INSTANZID` mit `Authorization: Bearer TOKEN`.
 Optional „Token auch in der Adresse“ aktivieren. Mit aktivem Symcon Connect erzeugt
@@ -30,7 +32,7 @@ Ein Tokenwechsel trennt bestehende Clients nach dem Übernehmen.
 
 ## Werkzeuge
 
-- workspace_info: Kategorie-ID, Name und Freigaben.
+- workspace_info: Standard-Kategorie, readable_roots, writable_roots und globale Freigaben.
 - objects_list: root_id, parent_id, objects (direkte Kinder).
 - object_read: gefilterte Metadaten und Werte; Skript-/Ereigniscode nur mit separater Quelltextfreigabe. Verknüpfungen liefern nur zugängliche Ziel-IDs und werden nicht automatisch verfolgt.
 - instances_list: freigegebene Instanzen auflisten, optional mit `module_id` nach Modul-GUID filtern.
@@ -66,6 +68,7 @@ php tests/access.php
 php tests/instances.php
 php tests/instance_checkbox.php
 php tests/instance_selection.php
+php tests/scope_permissions.php
 ```
 
 `python3 test_connection.py` führt einen lesenden Verbindungstest durch.
@@ -74,17 +77,30 @@ bestätigt; Medienzugriff in 0.1.8 ist lokal getestet, Live-Prüfung steht noch 
 Die Instanz-Erweiterung 0.3.0 wurde mit PHP-Testdoubles einschließlich aller bestehenden
 Zugriffs-, Medien- und Tokenprüfungen getestet. Live-Prüfung der neuen Formularauswahl steht aus.
 
-## Lese-, Schreib- und Sperrbereiche (0.2.0)
+## Lese-, Schreib- und Sperrbereiche (0.4.0)
 
-Im Formular stehen drei Bereiche zur Verfügung:
+Kategorien und Instanzen haben jeweils eine Rechteauswahl. Diese gilt einschließlich aller
+Unterobjekte. Neue Einträge sind standardmäßig nur lesbar.
+
+| Zugriffsrechte | Wirkung |
+| --- | --- |
+| Kein Zugriff | Objekt und Unterobjekte verborgen; keine direkten Lese-, Schreib- oder Ausführungszugriffe. |
+| Nur lesen | Struktur und freigegebene Inhalte lesbar; vorhandene Schreib- und Ausführungswerkzeuge blockiert. |
+| Lesen und schreiben | Vorhandene Objekt-, Variablen- und Skriptwerkzeuge im Bereich nutzbar, abhängig von globalen Freigaben. |
+
+Die globale Schreibfreigabe bleibt für Objektänderungen erforderlich. Skriptstarts,
+Ereignisse und das Ändern bestehender Skripte benötigen zusätzlich die Ausführungsfreigabe.
+Die Rechteauswahl erzeugt keine neuen Befehle zum Schalten von Geräten oder zum Ändern einer
+Instanzkonfiguration. Konfiguration lesen bleibt eine gesonderte Freigabe pro Instanz.
 
 | Einstellung | Bedeutung |
 | --- | --- |
-| Arbeitsbereich | Bisherige Kategorie für Erstellen/Bearbeiten/Ausführen, jeweils mit den passenden globalen Freigaben. 0 deaktiviert diesen Bereich. |
-| Zusätzliche Kategorien – nur lesen | Mehrere Kategorien mit Unterobjekten. Objektstruktur und Variablenwerte lesbar, kein Erstellen, Schreiben, Skriptstart oder Ereignisänderung. |
+| Standard-Arbeitsbereich | Standardziel beim Anlegen ohne parent_id; bisherige Schreibfreigabe bleibt erhalten. 0 deaktiviert nur dieses Standardziel. |
+| Kategorien – Zugriffsrechte | Mehrere Kategorien mit individuell ausgewählten Rechten und Unterobjekten. |
+| Instanzen – Zugriffsrechte | Mehrere Instanzen mit individuell ausgewählten Rechten und Unterobjekten. |
 | Gesperrte Kategorien | Mehrere Kategorien mit Unterobjekten. Keine direkten Lese-, Schreib- oder Ausführungszugriffe und keine Einträge in Objektlisten. |
 
-Priorität bei Überschneidungen: **gesperrt > nur lesen > Arbeitsbereich**.
+Priorität bei Überschneidungen: **gesperrt/kein Zugriff > nur lesen > lesen und schreiben**.
 Eine als Lesebereich eingetragene Kategorie bleibt also auch innerhalb des Arbeitsbereichs
 schreibgeschützt. Ein Lesebereich über dem Arbeitsbereich macht diesen ebenfalls nur lesbar.
 Deshalb bevorzugt getrennte Kategorien für Arbeits- und Lesebereiche auswählen.
@@ -93,20 +109,28 @@ und ihre Unterobjekte sind immer gesperrt. Root 0 kann nicht als Lesebereich ein
 Leere oder nicht mehr existierende Kategorie-Auswahlen müssen korrigiert/entfernt werden;
 fehlerhafte Einstellungen sperren den Datenzugriff statt die Freigabe zu erweitern.
 
-workspace_info nennt alle tatsächlich lesbaren Wurzelkategorien und ihre effektiven Rechte.
+workspace_info nennt alle tatsächlich lesbaren Wurzelobjekte mit ihren effektiven Rechten
+und zusätzlich writable_roots. Ohne Standard-Arbeitsbereich parent_id explizit aus einem
+Schreibbereich wählen. Ein vorhandener, nur lesbarer Standard-Arbeitsbereich wird nicht
+automatisch durch einen anderen Schreibbereich ersetzt.
 objects_list zeigt nur erlaubte Kinder, markiert sie mit read/write und filtert auch
 ChildrenIDs/HasChildren in object_read. Nicht freigegebene Eltern und gesperrte Link-Ziele
 werden nicht offengelegt. Links verleihen niemals Rechte auf das Ziel.
 Instanz-Konfigurationen benötigen eine zusätzliche Freigabe je Instanz (siehe unten).
 
-### Einzelne Instanzen freigeben (0.3.0)
+### Einzelne Instanzen freigeben
 
-Unter „Zusätzliche Instanzen – nur lesen“ können auch Kern-, I/O-, Splitter-, Konfigurator-,
+Unter „Instanzen – Zugriffsrechte“ können auch Kern-, I/O-, Splitter-, Konfigurator-,
 Discovery- und Visualisierungsinstanzen ausgewählt werden. Die Freigabe gilt für die Instanz
-und ihre Unterobjekte; sie gewährt keinerlei Schreib- oder Ausführungsrechte. Instanzen in
+und ihre Unterobjekte; die Rechte sind pro Zeile auswählbar. Instanzen in
 bisherigen Lesekategorien sind bereits für die neuen Werkzeuge sichtbar. Nicht freigegebene
 Instanzen bleiben unsichtbar, gesperrte Kategorien und die Werkstatt selbst haben immer Vorrang.
-Die neue Liste ist nach einem Update leer. Auch ein Betrieb nur mit Instanzfreigaben ist möglich.
+Auch ein Betrieb nur mit Instanzfreigaben ist möglich.
+
+Update von 0.3.x: Vorhandene Kategorie- und Instanzzeilen ohne Rechtefeld bleiben „Nur lesen“.
+Der Standard-Arbeitsbereich und globale Freigaben bleiben unverändert. Keine bestehenden
+Einträge werden automatisch schreibbar. Interne Eigenschaftsnamen ReadOnlyCategories und
+ReadOnlyInstances bleiben zur Kompatibilität erhalten, obwohl beide Listen jetzt Rechte anbieten.
 
 Ab 0.3.1 genügt die Checkbox **„Konfiguration lesen“** in der jeweiligen Zeile:
 

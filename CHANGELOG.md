@@ -1,5 +1,16 @@
 # Änderungen
 
+## 0.4.0
+
+- Kategorien und Instanzen mit Rechteauswahl: kein Zugriff, nur lesen, lesen und schreiben.
+- Bestehende Einträge ohne Rechtefeld bleiben nur lesbar, einschließlich Formularanzeige.
+- Schreibwerkzeuge berücksichtigen alle freigegebenen Schreibbereiche, auch ohne Standard-Arbeitsbereich.
+- workspace_info liefert writable_roots zusätzlich zu den lesbaren Bereichen.
+- Rechte gelten rekursiv; Sperren vor Nur-Lesen vor Schreibfreigaben, globale Freigaben bleiben erforderlich.
+- Variablen unter schreibbaren Kategorien, Instanzen und Skripten anlegen; Skripte/Kategorien auch unter Instanzen.
+- Instanz-Konfigurationslesefreigabe und Eigenschaftenfilter bleiben separat; keine neuen Gerätekonfigurationsbefehle.
+- Rücksetzen auf Nur-Lesen beim Instanzwechsel im Editor und zusätzliche Grenz-/Migrationstests.
+
 ## 0.3.2
 
 - Pro Instanz „Alle Eigenschaften erlauben“ oder einzelne Eigenschaften per Checkbox auswählen.

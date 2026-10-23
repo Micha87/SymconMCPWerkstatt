@@ -22,12 +22,12 @@
     {
       "type": "SelectCategory",
       "name": "RootID",
-      "caption": "Arbeitsbereich (0 = kein Schreibbereich)"
+      "caption": "Standard-Arbeitsbereich (0 = kein Standardziel; zusätzliche Schreibbereiche weiterhin möglich)"
     },
     {
       "type": "List",
       "name": "ReadOnlyCategories",
-      "caption": "Zusätzliche Kategorien – nur lesen",
+      "caption": "Kategorien – Zugriffsrechte",
       "rowCount": 4,
       "add": true,
       "delete": true,
@@ -39,6 +39,20 @@
           "add": 0,
           "edit": {
             "type": "SelectCategory"
+          }
+        },
+        {
+          "caption": "Zugriffsrechte",
+          "name": "Access",
+          "width": "220px",
+          "add": "read",
+          "edit": {
+            "type": "Select",
+            "options": [
+              { "caption": "Kein Zugriff", "value": "none" },
+              { "caption": "Nur lesen", "value": "read" },
+              { "caption": "Lesen und schreiben", "value": "write" }
+            ]
           }
         }
       ]
@@ -65,8 +79,8 @@
     {
       "type": "List",
       "name": "ReadOnlyInstances",
-      "caption": "Zusätzliche Instanzen – nur lesen (z. B. Kerninstanz Location)",
-      "form": "return json_decode(SMCP_UIInstanceAccessForm($id, $ReadOnlyInstances['InstanceID'] ?? 0, $ReadOnlyInstances['ReadConfiguration'] ?? false, $ReadOnlyInstances['AllProperties'] ?? true, json_encode($ReadOnlyInstances['PropertySelection'] ?? [])), true);",
+      "caption": "Instanzen – Zugriffsrechte",
+      "form": "return json_decode(SMCP_UIInstanceAccessForm($id, $ReadOnlyInstances['InstanceID'] ?? 0, $ReadOnlyInstances['ReadConfiguration'] ?? false, $ReadOnlyInstances['AllProperties'] ?? true, json_encode($ReadOnlyInstances['PropertySelection'] ?? []), $ReadOnlyInstances['Access'] ?? 'read'), true);",
       "rowCount": 4,
       "add": true,
       "delete": true,
@@ -77,6 +91,20 @@
           "width": "auto",
           "add": 0,
           "edit": { "type": "SelectInstance" }
+        },
+        {
+          "caption": "Zugriffsrechte",
+          "name": "Access",
+          "width": "220px",
+          "add": "read",
+          "edit": {
+            "type": "Select",
+            "options": [
+              { "caption": "Kein Zugriff", "value": "none" },
+              { "caption": "Nur lesen", "value": "read" },
+              { "caption": "Lesen und schreiben", "value": "write" }
+            ]
+          }
         },
         {
           "caption": "Konfiguration lesen",
@@ -116,7 +144,7 @@
     },
     {
       "type": "Label",
-      "caption": "Sperren haben immer Vorrang. Nur-Lesen hat auch innerhalb des Arbeitsbereichs Vorrang. Die Modulinstanz und ihre Kinder sind gesperrt."
+      "caption": "Rechte gelten einschließlich Unterobjekten. Priorität: gesperrt/kein Zugriff > nur lesen > lesen und schreiben. Globale Schreib- und Ausführungsfreigaben gelten zusätzlich. Die Modulinstanz und ihre Kinder bleiben gesperrt. Schreibrechte erlauben vorhandene Objekt-/Variablen-/Skriptwerkzeuge; sie ändern keine Instanzkonfiguration automatisch."
     },
     {
       "type": "CheckBox",
